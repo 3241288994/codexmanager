@@ -1,10 +1,33 @@
 # CodexManager
 
-**让网页版 ChatGPT 成为服务器科研项目的智能入口。** CodexManager 帮助已获授权的 GPT 用户在熟悉的对话体验中安全连接、理解并推进远端科研工作；Codex 额度管理、服务器账号一键切换和会话恢复，则为持续研究提供辅助保障。
+> **让 ChatGPT 网页版成为服务器科研项目的智能入口。**
+>
+> 在不把服务器直接暴露到公网的前提下，把已获授权的 ChatGPT 工作流带进远端科研项目：理解工作区、调用受限工具、推进研究任务。Codex 额度管理、服务器账号一键切换和会话恢复，则为持续研究提供配套保障。
 
-English: **Bring authorized ChatGPT web workflows to server-side research projects.** CodexManager provides a secure local-first bridge for advancing remote research, with Codex usage management, account switching, and session recovery as supporting capabilities.
+**完整接入路径：** `ChatGPT 网页版` → `Secure MCP Tunnel` → `独立、受审计的 MCP 适配层` → `CodexManager / LabContext` → `科研服务器`
 
-## 能做什么
+[部署到服务器](docs/open-source/01-server-deployment.md) · [连接 ChatGPT](docs/open-source/03-openai-plugin-and-tunnel.md) · [安全边界](#重要边界)
+
+English: **Bring authorized ChatGPT web workflows to server-side research projects.** CodexManager is a secure, local-first operations layer; connect ChatGPT through a separate reviewed MCP adapter and Secure MCP Tunnel, then manage the server-side research workflow from one place.
+
+## 一眼看懂
+
+| 你想做什么 | CodexManager 提供什么 |
+| --- | --- |
+| 用熟悉的 ChatGPT 网页研究服务器项目 | 通过独立 MCP 适配层和 Secure MCP Tunnel，将经过授权的对话工作流接入私有科研环境。 |
+| 不让服务器和管理接口暴露到公网 | 默认回环监听、受保护的 Web 壳、最小化工具策略与私有网络部署边界。 |
+| 连续推进而不是反复配置 | 集中管理 Codex 身份和额度信号，切换服务器凭据，并恢复本地会话。 |
+| 让模型围绕真实研究任务工作 | 管理 LabContext 工作区、模型可见资产、工具策略、分析任务和研究图。 |
+
+## 三步接入 ChatGPT
+
+1. **部署 CodexManager。** 先按[服务器部署说明](docs/open-source/01-server-deployment.md)在私有网络中启动服务并验证登录。
+2. **准备 MCP 适配层。** 它应只提供经过筛选、低权限且有输入 schema 的科研工具；不要把管理 RPC、`/v1` 网关或 SSH 转发当作 MCP 服务。
+3. **创建 Tunnel 并在 ChatGPT 添加连接。** 在 OpenAI Platform 创建 Secure MCP Tunnel，在服务器运行 `tunnel-client`，随后在 ChatGPT Developer mode 的 Plugins 中选择该 Tunnel。详细的权限、命令、安全要求和排障步骤见 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)。
+
+> **从这里开始：** 若你已拥有可用的 MCP 适配层，直接阅读 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)；若还没有，应先实现并审计适配层，再连接 ChatGPT。
+
+## 核心能力
 
 - **ChatGPT 科研接入**：将已获授权的 ChatGPT 网页工作流接入私有网络边界内的服务器科研项目，让对话、工作区与工具策略围绕同一研究任务协作。
 - **账号与额度**：通过官方设备授权添加账号，显示实际生效身份、套餐信号与额度快照，并安全切换服务器上的 Codex 凭据。
