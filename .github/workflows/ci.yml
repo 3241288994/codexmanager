@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        run: corepack pnpm@10.30.3 -C apps install --frozen-lockfile
+      - name: Lint maintained frontend surface
+        run: corepack pnpm@10.30.3 -C apps run lint
+      - name: Build static frontend
+        run: corepack pnpm@10.30.3 -C apps run build:desktop
+      - name: Run maintained runtime tests
+        run: corepack pnpm@10.30.3 -C apps run test:runtime
+      - name: Install Chromium for browser regression tests
+        run: corepack pnpm@10.30.3 -C apps exec playwright install --with-deps chromium
+      - name: Run browser regression tests
+        run: corepack pnpm@10.30.3 -C apps run test:e2e
+
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate manifests
+        run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+
+  desktop-shell:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate desktop manifest
+        run: cargo metadata --manifest-path apps/src-tauri/Cargo.toml --locked --no-deps --format-version 1 >/dev/null
+      - name: Run Tauri command and updater tests
+        run: cargo test --manifest-path apps/src-tauri/Cargo.toml --locked --lib
+
+  public-release-preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run source and secret preflight
+        run: scripts/open-source/preflight.sh

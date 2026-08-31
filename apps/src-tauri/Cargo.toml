@@ -1,0 +1,34 @@
+[package]
+name = "CodexManager"
+version = "0.3.9"
+description = "A Tauri App"
+authors = ["CodexManager contributors"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.10.3", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2.4.0"
+codexmanager-core = { path = "../../crates/core" }
+codexmanager-service = { path = "../../crates/service" }
+webbrowser = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+semver = "1.0"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+rfd = "0.15"
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

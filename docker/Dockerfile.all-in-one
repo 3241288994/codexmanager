@@ -1,0 +1,86 @@
+FROM node:22-bookworm-slim AS ui
+
+WORKDIR /src/apps
+
+RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
+
+COPY apps/package.json apps/pnpm-lock.yaml apps/pnpm-workspace.yaml ./
+COPY apps/components.json apps/next.config.ts ./
+COPY apps/postcss.config.mjs apps/tsconfig.json ./
+COPY apps/public ./public
+COPY apps/src ./src
+
+RUN --mount=type=cache,id=codexmanager-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store \
+    && pnpm run build
+
+FROM rust:1-bookworm AS builder
+
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+WORKDIR /src
+
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+ENV CARGO_NET_RETRY=10
+ENV CARGO_HTTP_TIMEOUT=600
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+COPY --from=ui /src/apps/out ./apps/out
+
+RUN --mount=type=cache,id=codexmanager-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=codexmanager-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=codexmanager-cargo-target-${TARGETARCH}${TARGETVARIANT},target=/src/target \
+    cargo build --locked -p codexmanager-service --release \
+    && cargo build --locked -p codexmanager-web --release --features embedded-ui \
+    && cargo build --locked -p codexmanager-start --release \
+    && mkdir -p /out \
+    && cp /src/target/release/codexmanager-service /out/codexmanager-service \
+    && cp /src/target/release/codexmanager-web /out/codexmanager-web \
+    && cp /src/target/release/codexmanager-start /out/codexmanager-start
+
+FROM debian:bookworm-slim
+
+ARG APP_USER=codexmanager
+ARG APP_UID=10001
+
+ENV TZ=Asia/Shanghai
+
+WORKDIR /app
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates wget tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid ${APP_UID} ${APP_USER} \
+    && useradd --system --uid ${APP_UID} --gid ${APP_UID} --home-dir /app --create-home --shell /usr/sbin/nologin ${APP_USER} \
+    && mkdir -p /data \
+    && chown -R ${APP_UID}:${APP_UID} /app /data
+
+COPY --from=builder /out/codexmanager-service /usr/local/bin/codexmanager-service
+COPY --from=builder /out/codexmanager-web /usr/local/bin/codexmanager-web
+COPY --from=builder /out/codexmanager-start /usr/local/bin/codexmanager-start
+
+ENV CODEXMANAGER_SERVICE_ADDR=0.0.0.0:48760
+ENV CODEXMANAGER_WEB_ADDR=0.0.0.0:48761
+ENV CODEXMANAGER_WEB_NO_OPEN=1
+ENV CODEXMANAGER_DB_PATH=/data/codexmanager.db
+ENV CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token
+ENV CODEXMANAGER_GATEWAY_TRACE_STDOUT=0
+ENV CODEXMANAGER_GATEWAY_ERROR_STDOUT=0
+ENV CODEXMANAGER_GATEWAY_TRACE_STDOUT_SLOW_MS=5000
+
+VOLUME ["/data"]
+EXPOSE 48761
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:48760/health \
+    && wget --no-verbose --tries=1 --spider http://127.0.0.1:48761/__auth_status \
+    || exit 1
+
+STOPSIGNAL SIGINT
+
+USER ${APP_USER}
+
+CMD ["/usr/local/bin/codexmanager-start"]

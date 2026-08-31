@@ -1,0 +1,23 @@
+{
+  "name": "codexmanager-connector",
+  "version": "0.1.0",
+  "description": "Set up and verify a private CodexManager deployment without exposing its administration plane.",
+  "author": {
+    "name": "CodexManager contributors"
+  },
+  "license": "MIT",
+  "keywords": ["codexmanager", "self-hosted", "setup"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CodexManager Connector",
+    "shortDescription": "Configure and verify a private CodexManager deployment.",
+    "longDescription": "Guides safe local client setup and deployment checks. This public template does not include an MCP connection.",
+    "developerName": "CodexManager contributors",
+    "category": "Productivity",
+    "capabilities": ["Guidance"],
+    "defaultPrompt": [
+      "Help me connect Codex CLI to my CodexManager server.",
+      "Check my CodexManager deployment without exposing admin APIs."
+    ]
+  }
+}

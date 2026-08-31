@@ -1,0 +1,3 @@
+display_name: CM Image Gen
+short_description: Generate images through CodexManager's Images API.
+default_prompt: Use CM Image Generation to create an image from my prompt.

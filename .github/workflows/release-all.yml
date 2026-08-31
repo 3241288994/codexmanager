@@ -1,0 +1,538 @@
+name: release-all
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.12)"
+        required: true
+        type: string
+      ref:
+        description: "Git ref/branch/sha to build"
+        required: false
+        default: "main"
+        type: string
+      prerelease:
+        description: "Release channel override (auto/true/false)"
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - true
+          - false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  TAURI_CLI_VERSION: 2.10.1
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target-shared
+
+concurrency:
+  group: ${{ format('{0}-tag-{1}', github.workflow, startsWith(github.event.inputs.tag, 'v') && github.event.inputs.tag || format('v{0}', github.event.inputs.tag)) }}
+  cancel-in-progress: false
+
+jobs:
+  build_frontend_dist:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+
+      - name: Install frontend dependencies
+        working-directory: apps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend dist
+        working-directory: apps
+        run: pnpm run build:desktop
+
+      - name: Pack frontend dist artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f apps/out/index.html || { echo "apps/out/index.html not found"; exit 1; }
+          rm -f frontend-dist.tar.gz
+          tar -czf frontend-dist.tar.gz -C apps out
+
+      - name: Upload frontend dist artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-frontend-dist
+          path: frontend-dist.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+
+  build_windows:
+    needs: build_frontend_dist
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          enable-pnpm-cache: "false"
+          enable-rust-cache: "false"
+
+      - name: Prepare frontend dist
+        uses: ./.github/actions/prepare-frontend-dist
+
+      - name: Build Tauri bundle (with retry)
+        uses: ./.github/actions/build-tauri-with-retry
+        with:
+          working-directory: apps
+          tauri-cli-version: ${{ env.TAURI_CLI_VERSION }}
+          bundles: nsis
+          shell-type: pwsh
+
+      - name: Stage desktop release assets
+        shell: pwsh
+        run: |
+          $releaseDir = Join-Path "${{ env.CARGO_TARGET_DIR }}" "release"
+          $bundleDir = Join-Path $releaseDir "bundle"
+          $portableDir = Join-Path $releaseDir "portable"
+          $desktopAssetsDir = Join-Path $releaseDir "release-assets"
+          $version = (Get-Content "apps/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          $arch = if ("${{ runner.arch }}" -eq "ARM64") { "arm64" } else { "x64" }
+          New-Item -ItemType Directory -Force $portableDir | Out-Null
+          Remove-Item -Recurse -Force $desktopAssetsDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $desktopAssetsDir | Out-Null
+
+          $source = Join-Path $releaseDir "CodexManager.exe"
+          if (-not (Test-Path $source -PathType Leaf)) {
+            throw "portable source binary not found: $source"
+          }
+
+          $portableBinary = Join-Path $portableDir "CodexManager-portable.exe"
+          Copy-Item -Force $source $portableBinary
+          Write-Host "portable binary: $portableBinary"
+
+          $installerSource = Get-ChildItem -Path $bundleDir -Recurse -File |
+            Where-Object { $_.Name -like "*-setup.exe" -and $_.Name -notlike "*portable*" } |
+            Sort-Object FullName |
+            Select-Object -First 1
+          if (-not $installerSource) {
+            throw "windows setup installer not found under: $bundleDir"
+          }
+
+          $installerTarget = Join-Path $desktopAssetsDir "CodexManager_${version}_${arch}-setup.exe"
+          Copy-Item -Force $installerSource.FullName $installerTarget
+          Copy-Item -Force $portableBinary (Join-Path $desktopAssetsDir "CodexManager-portable.exe")
+          Get-ChildItem -Path $desktopAssetsDir -File | ForEach-Object {
+            Write-Host "desktop asset: $($_.FullName)"
+          }
+
+      - name: Build service binaries
+        shell: pwsh
+        run: |
+          cargo build -p codexmanager-service --release
+          cargo build -p codexmanager-web --release --features embedded-ui
+          cargo build -p codexmanager-start --release
+
+      - name: Stage service package
+        uses: ./.github/actions/stage-service-package
+        with:
+          platform: windows
+          arch: ${{ runner.arch == 'X64' && 'x86_64' || runner.arch == 'ARM64' && 'arm64' || runner.arch }}
+          stage-root: stage
+          release-dir: ${{ env.CARGO_TARGET_DIR }}/release
+          binary-extension: .exe
+          shell-type: pwsh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-windows
+          path: ${{ env.CARGO_TARGET_DIR }}/release/release-assets/*.exe
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload service artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-service-windows
+          path: stage/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  build_macos_beta:
+    needs: build_frontend_dist
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            rust_target: aarch64-apple-darwin
+          - arch: x64
+            rust_target: x86_64-apple-darwin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          rust-target: ${{ matrix.rust_target }}
+          enable-pnpm-cache: "false"
+          enable-rust-cache: "false"
+
+      - name: Prepare frontend dist
+        uses: ./.github/actions/prepare-frontend-dist
+
+      - name: Build macOS app bundle
+        uses: ./.github/actions/build-tauri-with-retry
+        with:
+          working-directory: apps
+          tauri-cli-version: ${{ env.TAURI_CLI_VERSION }}
+          bundles: app
+          target: ${{ matrix.rust_target }}
+          shell-type: bash
+
+      - name: Rebuild macOS dmg with first-launch helper
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_dir="${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release"
+          bundle_root="${release_dir}/bundle"
+          test -d "$bundle_root" || { echo "macOS bundle root not found: $bundle_root"; exit 1; }
+
+          bundle_dir="$(find "$bundle_root" -type d -path '*/CodexManager.app' | head -n 1)"
+          test -n "$bundle_dir" || { echo "macOS app bundle not found under: $bundle_root"; exit 1; }
+
+          dmg_dir="${bundle_root}/dmg"
+          mkdir -p "$dmg_dir"
+          find "$dmg_dir" -type f -name '*.dmg' -delete
+
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            dmg_arch="aarch64"
+          else
+            dmg_arch="x64"
+          fi
+
+          version="$(python3 -c 'import json, pathlib; print(json.loads(pathlib.Path("apps/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"])')"
+
+          stage_dir="$(mktemp -d)"
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "$stage_dir" "$temp_dir"' EXIT
+
+          ditto "$bundle_dir" "$stage_dir/CodexManager.app"
+          ln -s /Applications "$stage_dir/Applications"
+          install -m 0755 "assets/macos/Open CodexManager.command" "$stage_dir/Open CodexManager.command"
+          install -m 0644 "assets/macos/README-macOS-first-launch.txt" "$stage_dir/README-macOS-first-launch.txt"
+
+          codesign --force --deep --sign - "$stage_dir/CodexManager.app"
+          codesign --verify --deep --strict "$stage_dir/CodexManager.app"
+
+          dmg_path="${dmg_dir}/CodexManager_${version}_${dmg_arch}.dmg"
+          temp_dmg_path="${temp_dir}/CodexManager_${version}_${dmg_arch}.dmg"
+          created=false
+          for attempt in 1 2 3; do
+            rm -f "$temp_dmg_path"
+            hdiutil detach "/Volumes/CodexManager" -force >/dev/null 2>&1 || true
+            sync || true
+            sleep "$attempt"
+            if hdiutil create -volname "CodexManager" -srcfolder "$stage_dir" -ov -format UDZO "$temp_dmg_path"; then
+              created=true
+              break
+            fi
+            echo "hdiutil create failed on attempt ${attempt}, retrying..."
+          done
+
+          $created || { echo "macOS dmg create failed after retries"; exit 1; }
+          mv -f "$temp_dmg_path" "$dmg_path"
+          test -f "$dmg_path" || { echo "macOS dmg not created: $dmg_path"; exit 1; }
+
+      - name: Stage legacy macOS portable package
+        if: ${{ matrix.arch == 'x64' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_dir="${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release"
+          bundle_root="${release_dir}/bundle"
+          test -d "$bundle_root" || { echo "macOS bundle root not found: $bundle_root"; exit 1; }
+
+          bundle_dir="$(find "$bundle_root" -type d -path '*/CodexManager.app' | head -n 1)"
+          test -n "$bundle_dir" || { echo "macOS app bundle not found under: $bundle_root"; exit 1; }
+
+          portable_dir="${release_dir}/portable"
+          mkdir -p "$portable_dir"
+
+          zip_path="${portable_dir}/CodexManager-macos-portable.zip"
+          rm -f "$zip_path"
+          ditto -c -k --sequesterRsrc --keepParent "$bundle_dir" "$zip_path"
+          echo "legacy portable zip: $zip_path"
+          echo "source app bundle: $bundle_dir"
+
+      - name: Build service binaries
+        run: |
+          cargo build -p codexmanager-service --release --target ${{ matrix.rust_target }}
+          cargo build -p codexmanager-web --release --features embedded-ui --target ${{ matrix.rust_target }}
+          cargo build -p codexmanager-start --release --target ${{ matrix.rust_target }}
+
+      - name: Stage service package
+        uses: ./.github/actions/stage-service-package
+        with:
+          platform: macos
+          arch: ${{ matrix.arch }}
+          stage-root: stage
+          release-dir: ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release
+          shell-type: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-macos-${{ matrix.arch }}
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/bundle/dmg/*.dmg
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/portable/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload service artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-service-macos-${{ matrix.arch }}
+          path: stage/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  build_linux:
+    needs: build_frontend_dist
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            rust_target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            build_docker: true
+          - arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+            build_docker: false
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          rust-target: ${{ matrix.rust_target }}
+          enable-pnpm-cache: "false"
+          enable-rust-cache: "false"
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev zip
+
+      - name: Prepare frontend dist
+        uses: ./.github/actions/prepare-frontend-dist
+
+      - name: Build Tauri bundle (with retry)
+        uses: ./.github/actions/build-tauri-with-retry
+        with:
+          working-directory: apps
+          tauri-cli-version: ${{ env.TAURI_CLI_VERSION }}
+          bundles: appimage,deb
+          target: ${{ matrix.rust_target }}
+          shell-type: bash
+
+      - name: Stage portable package
+        shell: bash
+        run: |
+          release_dir="${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release"
+          portable_dir="$release_dir/portable"
+          portable_zip_name="CodexManager-linux-${{ matrix.arch }}-portable.zip"
+          mkdir -p "$portable_dir"
+
+          source_bin="$release_dir/CodexManager"
+          if [[ ! -f "$source_bin" ]]; then
+            echo "portable source binary not found: $source_bin"
+            exit 1
+          fi
+
+          portable_bin="$portable_dir/CodexManager-portable"
+          cp -f "$source_bin" "$portable_bin"
+          chmod +x "$portable_bin"
+
+          zip_path="$portable_dir/$portable_zip_name"
+          rm -f "$zip_path"
+          (
+            cd "$portable_dir"
+            zip -q "$portable_zip_name" "CodexManager-portable"
+          )
+          echo "portable package: $zip_path"
+
+      - name: Build service binaries
+        run: |
+          cargo build -p codexmanager-service --release --target ${{ matrix.rust_target }}
+          cargo build -p codexmanager-web --release --features embedded-ui --target ${{ matrix.rust_target }}
+          cargo build -p codexmanager-start --release --target ${{ matrix.rust_target }}
+
+      - name: Stage docker release package
+        if: ${{ matrix.build_docker }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_dir="${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release"
+          docker_stage="${release_dir}/docker-release"
+          release_assets_dir="${release_dir}/release-assets"
+
+          rm -rf "$docker_stage"
+          mkdir -p "$docker_stage" "$release_assets_dir"
+
+          cp docker/Dockerfile.service.release "$docker_stage/Dockerfile.service"
+          cp docker/Dockerfile.web.release "$docker_stage/Dockerfile.web"
+          cp docker/docker-compose.release.yml "$docker_stage/docker-compose.yml"
+          cp "$release_dir/codexmanager-service" "$docker_stage/codexmanager-service"
+          cp "$release_dir/codexmanager-web" "$docker_stage/codexmanager-web"
+          cp "$release_dir/codexmanager-start" "$docker_stage/codexmanager-start"
+          chmod +x "$docker_stage"/codexmanager-*
+
+          docker build -f "$docker_stage/Dockerfile.service" -t codexmanager-service:release "$docker_stage"
+          docker build -f "$docker_stage/Dockerfile.web" -t codexmanager-web:release "$docker_stage"
+
+          docker save codexmanager-service:release codexmanager-web:release | gzip -c > "$release_assets_dir/codexmanager-docker-images.tar.gz"
+          cp "$docker_stage/docker-compose.yml" "$release_assets_dir/docker-compose.release.yml"
+
+      - name: Upload docker artifacts
+        if: ${{ matrix.build_docker }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-docker
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/release-assets/codexmanager-docker-images.tar.gz
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/release-assets/docker-compose.release.yml
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Stage service package
+        uses: ./.github/actions/stage-service-package
+        with:
+          platform: linux
+          arch: ${{ matrix.arch }}
+          stage-root: stage
+          release-dir: ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release
+          shell-type: bash
+
+      - name: Stage web package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_dir="${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release"
+          release_assets_dir="${release_dir}/release-assets"
+          service_zip="stage/CodexManager-service-linux-${{ matrix.arch }}.zip"
+          web_zip="${release_assets_dir}/CodexManager-web-linux-${{ matrix.arch }}.zip"
+
+          mkdir -p "$release_assets_dir"
+          test -f "$service_zip" || { echo "service package not found: $service_zip"; exit 1; }
+          cp -f "$service_zip" "$web_zip"
+          echo "web package: $web_zip"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-linux-${{ matrix.arch }}
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/bundle/**/*.AppImage
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/bundle/**/*.deb
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/portable/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload service artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-service-linux-${{ matrix.arch }}
+          path: stage/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload web artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: codexmanager-web-linux-${{ matrix.arch }}
+          path: ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/release-assets/CodexManager-web-linux-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    needs: [build_windows, build_macos_beta, build_linux]
+    if: ${{ needs.build_windows.result == 'success' && needs.build_macos_beta.result == 'success' && needs.build_linux.result == 'success' }}
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: codexmanager-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load docker images
+        shell: bash
+        run: |
+          set -euo pipefail
+          gunzip -c release-assets/codexmanager-docker-images.tar.gz | docker load
+
+      - name: Push docker images to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          tag="${{ github.event.inputs.tag }}"
+
+          docker tag codexmanager-service:release "ghcr.io/${owner}/codexmanager-service:${tag}"
+          docker tag codexmanager-web:release "ghcr.io/${owner}/codexmanager-web:${tag}"
+
+          docker push "ghcr.io/${owner}/codexmanager-service:${tag}"
+          docker push "ghcr.io/${owner}/codexmanager-web:${tag}"
+
+      - name: List release assets
+        run: find release-assets -type f | sort
+
+      - name: Publish GitHub Release
+        uses: ./.github/actions/publish-github-release
+        with:
+          tag: ${{ github.event.inputs.tag }}
+          ref: ${{ github.event.inputs.ref || 'main' }}
+          prerelease-input: ${{ github.event.inputs.prerelease || 'auto' }}
+          assets-dir: release-assets

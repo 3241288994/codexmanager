@@ -1,0 +1,43 @@
+name: prepare-frontend-dist
+description: Restore the shared frontend dist artifact into apps/out.
+
+inputs:
+  artifact-name:
+    description: Frontend dist artifact name.
+    required: false
+    default: codexmanager-frontend-dist
+  apps-dir:
+    description: Frontend application directory.
+    required: false
+    default: apps
+  frontend-dist-dir:
+    description: Built frontend directory relative to apps-dir.
+    required: false
+    default: out
+  artifact-file:
+    description: Downloaded tarball filename.
+    required: false
+    default: frontend-dist.tar.gz
+
+runs:
+  using: composite
+  steps:
+    - name: Download shared frontend dist
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: .
+
+    - name: Restore frontend dist
+      shell: pwsh
+      run: |
+        $appsDir = '${{ inputs.apps-dir }}'
+        $distDir = '${{ inputs.frontend-dist-dir }}'
+        $artifactFile = '${{ inputs.artifact-file }}'
+        if (Test-Path (Join-Path $appsDir $distDir)) {
+          Remove-Item -Recurse -Force (Join-Path $appsDir $distDir)
+        }
+        tar -xzf $artifactFile -C $appsDir
+        if (-not (Test-Path (Join-Path $appsDir "$distDir/index.html") -PathType Leaf)) {
+          throw "frontend dist restore failed: $appsDir/$distDir/index.html not found"
+        }

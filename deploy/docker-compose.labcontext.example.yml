@@ -1,0 +1,13 @@
+# Optional override for a LabContext admin service running on the Docker host.
+# Copy the values into deploy/.env, then start with both Compose files:
+# docker compose --env-file deploy/.env -f deploy/docker-compose.self-hosted.yml -f deploy/docker-compose.labcontext.example.yml up -d --build
+#
+# The token remains on the host and is mounted read-only. This uses the Docker
+# host gateway only; CodexManager still rejects arbitrary remote admin URLs.
+services:
+  codexmanager:
+    environment:
+      LABCONTEXT_ADMIN_URL: ${LABCONTEXT_ADMIN_URL:-http://host.docker.internal:1455/admin}
+      LABCTX_ADMIN_TOKEN_FILE: /run/secrets/labcontext-admin.token
+    volumes:
+      - ${LABCTX_ADMIN_TOKEN_FILE_HOST:?set LABCTX_ADMIN_TOKEN_FILE_HOST}:/run/secrets/labcontext-admin.token:ro

@@ -1,0 +1,216 @@
+use codexmanager_core::auth::{
+    build_authorize_url, generate_pkce, generate_state, DEFAULT_CLIENT_ID, DEFAULT_ISSUER,
+};
+use codexmanager_core::rpc::types::LoginStartResult;
+use codexmanager_core::storage::{now_ts, Event, LoginSession};
+
+use crate::auth_callback::{ensure_login_server, resolve_redirect_uri};
+use crate::storage_helpers::open_storage;
+
+/// 函数 `is_device_login_type`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - login_type: 参数 login_type
+///
+/// # 返回
+/// 返回函数执行结果
+fn is_device_login_type(login_type: &str) -> bool {
+    login_type.eq_ignore_ascii_case("chatgptDeviceCode")
+        || login_type.eq_ignore_ascii_case("device")
+}
+
+/// 函数 `is_supported_chatgpt_login_type`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - login_type: 参数 login_type
+///
+/// # 返回
+/// 返回函数执行结果
+fn is_supported_chatgpt_login_type(login_type: &str) -> bool {
+    let normalized = login_type.trim();
+    normalized.eq_ignore_ascii_case("chatgpt")
+        || normalized.eq_ignore_ascii_case("chatgptDeviceCode")
+        || normalized.eq_ignore_ascii_case("device")
+}
+
+/// 函数 `login_start`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - crate: 参数 crate
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn login_start(
+    login_type: &str,
+    open_browser: bool,
+    note: Option<String>,
+    tags: Option<String>,
+    group_name: Option<String>,
+    workspace_id: Option<String>,
+) -> Result<LoginStartResult, String> {
+    // 读取登录相关配置
+    let issuer =
+        std::env::var("CODEXMANAGER_ISSUER").unwrap_or_else(|_| DEFAULT_ISSUER.to_string());
+    let client_id =
+        std::env::var("CODEXMANAGER_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+    let originator = crate::gateway::current_wire_originator();
+    let normalized_login_type = login_type.trim();
+    if normalized_login_type.eq_ignore_ascii_case("apiKey") {
+        return Ok(LoginStartResult::ApiKey {});
+    }
+    if !is_supported_chatgpt_login_type(normalized_login_type) {
+        return Err(format!("unsupported login type: {normalized_login_type}"));
+    }
+    let is_device = is_device_login_type(normalized_login_type);
+    if !is_device {
+        ensure_login_server()?;
+    }
+    let redirect_uri = if is_device {
+        std::env::var("CODEXMANAGER_REDIRECT_URI")
+            .unwrap_or_else(|_| "http://localhost:1455/auth/callback".to_string())
+    } else {
+        resolve_redirect_uri().unwrap_or_else(|| "http://localhost:1455/auth/callback".to_string())
+    };
+
+    // 生成 PKCE 与状态
+    let pkce = generate_pkce();
+    let state = generate_state();
+    let login_id = if is_device {
+        generate_state()
+    } else {
+        state.clone()
+    };
+
+    if is_device {
+        let device = crate::auth_tokens::request_device_code(&issuer, &client_id)?;
+        if let Some(storage) = open_storage() {
+            let _ = storage.insert_login_session(&LoginSession {
+                login_id: login_id.clone(),
+                code_verifier: pkce.code_verifier.clone(),
+                state: login_id.clone(),
+                status: "pending".to_string(),
+                error: None,
+                workspace_id: workspace_id.clone(),
+                note,
+                tags,
+                group_name,
+                created_at: now_ts(),
+                updated_at: now_ts(),
+            });
+            let _ = storage.insert_event(&Event {
+                account_id: None,
+                event_type: "login_start".to_string(),
+                message: format!(
+                    "{{\"login_id\":\"{}\",\"code_verifier\":\"{}\"}}",
+                    login_id, pkce.code_verifier
+                ),
+                created_at: now_ts(),
+            });
+        }
+        crate::auth_tokens::spawn_device_code_login_completion(
+            issuer.clone(),
+            login_id.clone(),
+            device.clone(),
+        );
+
+        return Ok(LoginStartResult::ChatgptDeviceCode {
+            login_id,
+            verification_url: device.verification_url,
+            user_code: device.user_code,
+        });
+    }
+
+    // 写入登录会话
+    if let Some(storage) = open_storage() {
+        let _ = storage.insert_login_session(&LoginSession {
+            login_id: login_id.clone(),
+            code_verifier: pkce.code_verifier.clone(),
+            state: state.clone(),
+            status: "pending".to_string(),
+            error: None,
+            workspace_id: workspace_id.clone(),
+            note,
+            tags,
+            group_name,
+            created_at: now_ts(),
+            updated_at: now_ts(),
+        });
+    }
+
+    // 构造登录地址
+    let auth_url = build_authorize_url(
+        &issuer,
+        &client_id,
+        &redirect_uri,
+        &pkce.code_challenge,
+        &state,
+        &originator,
+        workspace_id.as_deref(),
+    );
+
+    // 写入事件日志
+    if let Some(storage) = open_storage() {
+        let _ = storage.insert_event(&Event {
+            account_id: None,
+            event_type: "login_start".to_string(),
+            message: format!(
+                "{{\"login_id\":\"{}\",\"code_verifier\":\"{}\"}}",
+                state, pkce.code_verifier
+            ),
+            created_at: now_ts(),
+        });
+    }
+
+    // 可选自动打开浏览器
+    if open_browser {
+        let _ = webbrowser::open(&auth_url);
+    }
+
+    Ok(LoginStartResult::Chatgpt {
+        login_id: state,
+        auth_url,
+    })
+}
+
+/// 函数 `login_status`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-02
+///
+/// # 参数
+/// - crate: 参数 crate
+///
+/// # 返回
+/// 返回函数执行结果
+pub(crate) fn login_status(login_id: &str) -> serde_json::Value {
+    // 查询登录会话状态
+    if login_id.is_empty() {
+        return serde_json::json!({ "status": "unknown" });
+    }
+    let storage = match open_storage() {
+        Some(storage) => storage,
+        None => return serde_json::json!({ "status": "unknown" }),
+    };
+    let session = match storage.get_login_session(login_id) {
+        Ok(Some(session)) => session,
+        _ => return serde_json::json!({ "status": "unknown" }),
+    };
+    serde_json::json!({
+        "status": session.status,
+        "error": session.error,
+        "updatedAt": session.updated_at
+    })
+}

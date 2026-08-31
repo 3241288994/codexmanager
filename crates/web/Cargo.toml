@@ -1,0 +1,25 @@
+[package]
+name = "codexmanager-web"
+version.workspace = true
+edition = "2021"
+
+[features]
+default = ["embedded-ui"]
+# 发行物/容器内使用：将前端静态资源（apps/out）打进二进制，做到“单文件启动”。
+embedded-ui = ["dep:include_dir", "dep:mime_guess"]
+
+[dependencies]
+codexmanager-service = { path = "../service" }
+axum = "0.8"
+include_dir = { version = "0.7", optional = true }
+mime_guess = { version = "2", optional = true }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros"] }
+tower-http = { version = "0.6", features = ["fs"] }
+webbrowser = "0.8"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

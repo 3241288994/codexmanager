@@ -1,0 +1,43 @@
+name: codexmanager
+
+services:
+  codexmanager:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.all-in-one
+    restart: unless-stopped
+    init: true
+    user: "10001:10001"
+    environment:
+      CODEXMANAGER_SERVICE_ADDR: 0.0.0.0:48760
+      CODEXMANAGER_WEB_ADDR: 0.0.0.0:48761
+      CODEXMANAGER_WEB_NO_OPEN: "1"
+      CODEXMANAGER_DB_PATH: /data/codexmanager.db
+      CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
+      CODEXMANAGER_WEB_ACCESS_PASSWORD_FILE: /run/secrets/codexmanager-web-access-password
+      CODEXMANAGER_WEB_ACCESS_PASSWORD_RESET: ${CODEXMANAGER_WEB_ACCESS_PASSWORD_RESET:-0}
+      CODEXMANAGER_GATEWAY_TRACE_STDOUT: "0"
+      CODEXMANAGER_GATEWAY_ERROR_STDOUT: "0"
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - codexmanager-data:/data
+    secrets:
+      - source: codexmanager-web-access-password
+        target: codexmanager-web-access-password
+        mode: 0444
+    ports:
+      - "127.0.0.1:${CODEXMANAGER_WEB_PORT:-48761}:48761"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+
+volumes:
+  codexmanager-data:
+
+secrets:
+  codexmanager-web-access-password:
+    file: ${CODEXMANAGER_WEB_ACCESS_PASSWORD_FILE_HOST:?set CODEXMANAGER_WEB_ACCESS_PASSWORD_FILE_HOST to a private password file}

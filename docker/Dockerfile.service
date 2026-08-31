@@ -1,0 +1,44 @@
+FROM rust:1-bookworm AS builder
+
+WORKDIR /src
+
+# 先拷贝 manifests，尽量利用 Docker layer cache
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+RUN cargo build --locked -p codexmanager-service --release
+
+FROM debian:bookworm-slim
+
+ARG APP_USER=codexmanager
+ARG APP_UID=10001
+
+ENV TZ=Asia/Shanghai
+
+WORKDIR /app
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates wget tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid ${APP_UID} ${APP_USER} \
+    && useradd --system --uid ${APP_UID} --gid ${APP_UID} --home-dir /app --create-home --shell /usr/sbin/nologin ${APP_USER} \
+    && mkdir -p /data \
+    && chown -R ${APP_UID}:${APP_UID} /app /data
+
+COPY --from=builder /src/target/release/codexmanager-service /usr/local/bin/codexmanager-service
+
+ENV CODEXMANAGER_SERVICE_ADDR=0.0.0.0:48760
+ENV CODEXMANAGER_DB_PATH=/data/codexmanager.db
+ENV CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token
+ENV CODEXMANAGER_GATEWAY_TRACE_STDOUT=0
+ENV CODEXMANAGER_GATEWAY_ERROR_STDOUT=0
+
+VOLUME ["/data"]
+EXPOSE 48760
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:48760/health || exit 1
+
+USER ${APP_USER}
+
+CMD ["codexmanager-service"]

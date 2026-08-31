@@ -1,0 +1,37 @@
+FROM debian:bookworm-slim
+
+ARG APP_USER=codexmanager
+ARG APP_UID=10001
+
+ENV TZ=Asia/Shanghai
+
+WORKDIR /app
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates wget tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid ${APP_UID} ${APP_USER} \
+    && useradd --system --uid ${APP_UID} --gid ${APP_UID} --home-dir /app --create-home --shell /usr/sbin/nologin ${APP_USER} \
+    && mkdir -p /data \
+    && chown -R ${APP_UID}:${APP_UID} /app /data
+
+COPY codexmanager-web /usr/local/bin/codexmanager-web
+
+ENV CODEXMANAGER_WEB_ADDR=0.0.0.0:48761
+ENV CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1
+ENV CODEXMANAGER_WEB_NO_OPEN=1
+ENV CODEXMANAGER_SERVICE_ADDR=codexmanager-service:48760
+ENV CODEXMANAGER_DB_PATH=/data/codexmanager.db
+ENV CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token
+ENV CODEXMANAGER_GATEWAY_TRACE_STDOUT=0
+ENV CODEXMANAGER_GATEWAY_ERROR_STDOUT=0
+
+VOLUME ["/data"]
+EXPOSE 48761
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:48761/__auth_status || exit 1
+
+USER ${APP_USER}
+
+CMD ["codexmanager-web"]

@@ -1,0 +1,40 @@
+[package]
+name = "codexmanager-service"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+codexmanager-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+toml_edit = "0.22"
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "stream", "socks"] }
+bytes = "1"
+rand = "0.8"
+sha2 = "0.10"
+tiny_http = "0.12"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+futures-util = "0.3"
+eventsource-stream = "0.2.3"
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", features = ["ring"] }
+url = "2"
+webbrowser = "0.8"
+urlencoding = "2"
+log = "0.4"
+env_logger = "0.11"
+crossbeam-channel = "0.5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+croner = "3.0.1"
+zstd = "0.13"
+os_info = "3.12.0"
+rhai = "1"
+sysinfo = "0.30"
+
+[dev-dependencies]
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

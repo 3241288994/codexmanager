@@ -1,0 +1,2 @@
+export const DEFAULT_CODEX_ORIGINATOR = "codex_cli_rs";
+export const DEFAULT_CODEX_USER_AGENT_VERSION = "0.101.0";

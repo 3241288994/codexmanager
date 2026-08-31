@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CodexManager",
+  "version": "0.3.9",
+  "identifier": "com.codexmanager.desktop",
+  "build": {
+    "beforeDevCommand": "node ./src-tauri/scripts/before-build.mjs dev:desktop",
+    "beforeBuildCommand": "node ./src-tauri/scripts/before-build.mjs build:desktop",
+    "devUrl": "http://127.0.0.1:3005",
+    "frontendDist": "../out"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "CodexManager",
+        "width": 1100,
+        "height": 720,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' http://localhost:* http://127.0.0.1:*; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png",
+      "icons/icon.icns"
+    ]
+  },
+  "plugins": {}
+}

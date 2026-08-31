@@ -1,0 +1,9 @@
+CodexManager includes work derived from qxcnm/Codex-Manager.
+
+The upstream project is available at https://github.com/qxcnm/Codex-Manager and
+is distributed under the MIT License. This repository retains the applicable
+copyright and license notices in LICENSE.
+
+This repository has a distinct product scope focused on local account/session
+management and LabContext integration. It does not imply endorsement by the
+upstream project or by OpenAI.
