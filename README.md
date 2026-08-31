@@ -22,7 +22,7 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
 ## 三步接入 ChatGPT
 
 1. **部署 CodexManager。** 先按[服务器部署说明](docs/open-source/01-server-deployment.md)在私有网络中启动服务并验证登录。
-2. **准备 MCP 适配层。** 它应只提供经过筛选、低权限且有输入 schema 的科研工具；不要把管理 RPC、`/v1` 网关或 SSH 转发当作 MCP 服务。
+2. **准备 MCP 适配层。** 它应只提供经过筛选、低权限且有输入 schema 的科研工具；不要把管理 RPC 或 SSH 转发当作 MCP 服务。
 3. **创建 Tunnel 并在 ChatGPT 添加连接。** 在 OpenAI Platform 创建 Secure MCP Tunnel，在服务器运行 `tunnel-client`，随后在 ChatGPT Developer mode 的 Plugins 中选择该 Tunnel。详细的权限、命令、安全要求和排障步骤见 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)。
 <img width="1356" height="1190" alt="image" src="https://github.com/user-attachments/assets/2a9e0882-cd8d-42f0-887b-96725140550e" />
 
@@ -41,12 +41,10 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
   <img width="2382" height="1184" alt="image" src="https://github.com/user-attachments/assets/aac5d7cf-b728-4936-96f3-a78aec1813c4" />
   <img width="2338" height="1240" alt="image" src="https://github.com/user-attachments/assets/b280447d-9625-42e3-96cc-4ea0c8a9b237" />
 
-- **私有网关**：自托管 Web 壳可代理受保护的 OpenAI 兼容 `/v1` 请求。它只适合你已获授权的私有部署，不是公共 API 托管服务。
-
 ## 重要边界
 
 - 默认部署仅监听服务器回环地址；管理 RPC、数据库、账号令牌和 LabContext 管理令牌不应公开。
-- 项目当前**不提供 MCP `/mcp` endpoint**。`plugins/codexmanager-connector` 是安全部署与连接指引模板，不会把 `/v1` 或管理 RPC 冒充 MCP。
+- 当前公开版**不提供 MCP `/mcp` endpoint，也不暴露 OpenAI 兼容 `/v1` 网关**。`plugins/codexmanager-connector` 是安全部署与连接指引模板，不会把管理 RPC 冒充 MCP。
 - Secure MCP Tunnel 仅适合私有开发连接；公开 MCP/插件需要独立、经过审计的 HTTPS MCP 服务、逐用户授权和滥用防护。详见 [Tunnel 与插件说明](docs/open-source/03-openai-plugin-and-tunnel.md)。
 - 请只使用你有权使用的 OpenAI、Codex 和 LabContext 账号与服务，并遵守其适用条款。
 
@@ -118,7 +116,7 @@ CODEXMANAGER_UPDATE_REPO=owner/repository
 ```text
 apps/                    Next.js 前端与 Tauri 桌面壳
 crates/core/             SQLite 迁移、存储与认证基础
-crates/service/          本地服务、账户、会话、网关与 LabContext 适配
+crates/service/          本地服务、账户、会话与 LabContext 适配
 crates/web/              Web 运行壳和受保护的 RPC 代理
 crates/start/            all-in-one 启动器
 deploy/                  安全 Compose 与可选 LabContext 覆盖

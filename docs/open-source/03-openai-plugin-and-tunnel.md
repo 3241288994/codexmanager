@@ -2,13 +2,12 @@
 
 ## 当前仓库的边界
 
-CodexManager 提供 Web 管理、内部 RPC、私有 OpenAI 兼容网关和可选 LabContext 管理适配，
-但**没有实现 MCP Streamable HTTP `/mcp` endpoint**。因此：
+CodexManager 提供 Web 管理、内部 RPC 和可选 LabContext 管理适配，但**没有实现 MCP
+Streamable HTTP `/mcp` endpoint，也不暴露 OpenAI 兼容 `/v1` 网关**。因此：
 
-- 不要把 `/v1`、`/api/rpc`、`/rpc`、LabContext 管理端或个人 SSH 端口转发填入 ChatGPT
-  的 MCP 地址。
+- 不要把 `/api/rpc`、`/rpc`、LabContext 管理端或个人 SSH 端口转发填入 ChatGPT 的 MCP 地址。
 - Secure MCP Tunnel 只能把已有的 MCP server 安全连接到 OpenAI；它不会把普通 REST、
-  管理 RPC 或 OpenAI 兼容网关转换成 MCP。
+  管理 RPC 转换成 MCP。
 - `plugins/codexmanager-connector` 是一个可公开分发的**技能型插件模板**。它不含 MCP
   连接、Tunnel ID、运行时 API Key 或用户专属 `.app.json`。
 

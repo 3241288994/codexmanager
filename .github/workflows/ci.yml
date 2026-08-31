@@ -15,23 +15,26 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: apps/pnpm-lock.yaml
       - name: Install frontend dependencies
-        run: corepack pnpm@10.30.3 -C apps install --frozen-lockfile
+        run: pnpm -C apps install --frozen-lockfile
       - name: Lint maintained frontend surface
-        run: corepack pnpm@10.30.3 -C apps run lint
+        run: pnpm -C apps run lint
       - name: Build static frontend
-        run: corepack pnpm@10.30.3 -C apps run build:desktop
+        run: pnpm -C apps run build:desktop
       - name: Run maintained runtime tests
-        run: corepack pnpm@10.30.3 -C apps run test:runtime
+        run: pnpm -C apps run test:runtime
       - name: Install Chromium for browser regression tests
-        run: corepack pnpm@10.30.3 -C apps exec playwright install --with-deps chromium
+        run: pnpm -C apps exec playwright install --with-deps chromium
       - name: Run browser regression tests
-        run: corepack pnpm@10.30.3 -C apps run test:e2e
+        run: pnpm -C apps run test:e2e
 
   rust:
     runs-on: ubuntu-24.04

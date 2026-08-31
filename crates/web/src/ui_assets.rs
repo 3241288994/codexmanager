@@ -288,11 +288,11 @@ mod tests {
 
     #[test]
     fn directory_route_prefers_embedded_directory_index() {
-        let (served_path, _) = resolve_embedded_asset("accounts/").expect("accounts asset");
-        assert_eq!(served_path, "accounts/index.html");
+        let (served_path, _) = resolve_embedded_asset("sessions/").expect("sessions asset");
+        assert_eq!(served_path, "sessions/index.html");
 
-        let (served_path, _) = resolve_embedded_asset("accounts").expect("accounts asset");
-        assert_eq!(served_path, "accounts/index.html");
+        let (served_path, _) = resolve_embedded_asset("sessions").expect("sessions asset");
+        assert_eq!(served_path, "sessions/index.html");
     }
 
     #[test]

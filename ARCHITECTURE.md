@@ -25,7 +25,7 @@ Browser / Tauri
 
 `codexmanager-web` 提供静态 Next.js UI，并将受认证保护的 JSON-RPC 转发至 `codexmanager-service`。桌面端通过 Tauri 命令调用同一组服务能力；Web 端通过 `/api/runtime` 和 `/api/rpc` 使用等价的命令映射。
 
-服务拥有账号存储、OpenAI 设备授权和用量刷新、Codex profile 写入、本地会话索引、LabContext 控制面适配以及可选 OpenAI 兼容网关。`codexmanager-start` 将 service 与 web 壳组合成单一进程组。
+服务拥有账号存储、OpenAI 设备授权和用量刷新、Codex profile 写入、本地会话索引与 LabContext 控制面适配。`codexmanager-start` 将 service 与 web 壳组合成单一进程组。
 
 ## 关键不变量
 
@@ -56,4 +56,4 @@ LabContext 管理端默认只能使用 HTTP loopback 地址。容器部署时可
 - 在 `accounts` 多用户认证模式中，成员只能访问自己的 API Key、用量摘要与请求日志；服务器账号、Codex 配置、会话目录、LabContext 管理面及全局设置均要求管理员角色。
 - Service 与 Web 默认应只监听 loopback；公网部署需要独立的 TLS、认证、限流与审计设计。
 - 账号 token、RPC token、平台 Key、Codex 状态和 LabContext 管理 token 都是本地秘密，不能提交或写入普通日志。
-- `/v1` 是可选的私有客户端接口；它不是 MCP。ChatGPT 模型工具必须通过独立、最小权限的 MCP 服务提供。
+- 当前公开版不暴露 `/v1`，也不提供 MCP endpoint。ChatGPT 模型工具必须通过独立、最小权限的 MCP 服务提供。

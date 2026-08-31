@@ -15,7 +15,7 @@
 - 桌面更新默认关闭。发布自己的 GitHub Release 后，维护者才可通过
   `CODEXMANAGER_UPDATE_REPO=owner/repository` 启用对应仓库的更新源。
 - `plugins/codexmanager-connector` 是无连接 ID、无 MCP endpoint 的技能型模板。
-  当前项目没有 `/mcp`；不要把 `/v1`、管理 RPC 或 LabContext 管理端注册为 MCP。
+  当前项目没有 `/mcp` 或公开的 `/v1`；不要把管理 RPC 或 LabContext 管理端注册为 MCP。
 - 历史的插件市场、账号导入导出和 warmup RPC 不再注册到公开 Tauri invoke 表，避免暴露服务端已不支持的入口。
 - 源码包会排除数据库、凭据、日志、构建缓存、Node/Rust 产物、Tauri 生成 schema、用户插件 `.app.json` 和原始交付压缩包。
 

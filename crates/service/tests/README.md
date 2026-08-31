@@ -10,7 +10,6 @@
 
 - `app_settings.rs`
 - `default_addr.rs`
-- `gateway_logs.rs`
 - `rpc.rs`
 - `shutdown_flag.rs`
 - `e2e.rs`
@@ -66,17 +65,10 @@
 - `rpc` 调度与 shutdown 行为
 - 默认地址、日志记录等门面能力
 
-### 协议兼容回归测试
+### 公开接口边界回归测试
 
-适合：
-
-- `/v1/chat/completions`
-- `/v1/responses`
-- stream / non-stream
-- tools / tool_calls
-- 协议转换与聚合行为
-
-这类测试优先沉淀到 `gateway/` 子目录，避免散落在 crate 根。
+当前公开版只验证 Web 管理与内部 RPC 对外门面。OpenAI 兼容 `/v1` 路由没有暴露；如未来
+重新设计并经过安全评审，应为其单独建立受支持的端到端测试，而不是恢复已废弃的旧测试夹具。
 
 ## 运行建议
 
@@ -86,7 +78,7 @@
 
 ## 维护约定
 
-- 新增协议兼容测试，优先放到 `tests/gateway/`
+- 新增 HTTP 公开接口时，先明确部署边界、鉴权和端到端测试，不要把管理 RPC 直接当作模型工具。
 - 新增 app settings / runtime sync 测试，优先放到根目录或后续专门子目录
 - 若测试需要大量 fixture，优先新建子目录，不要继续把 crate 根测试文件堆大
 - 新增模型目录 / `models_cache.json` 相关回归时，优先明确放到 `usage/` 或 `gateway/` 之下，不要把桌面端同步假设散落到普通门面测试里

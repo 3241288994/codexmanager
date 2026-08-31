@@ -1,39 +1,17 @@
 # 本地电脑接入
 
-## 连接私有 CodexManager 网关
+## 当前公开版的客户端边界
 
-先完成以下前提：
+当前公开版不提供 OpenAI 兼容 `/v1` 网关，因此不要把
+`http://127.0.0.1:48761/v1` 配置为 Codex CLI 的 `base_url`，也不要将管理 RPC、账号 token、
+`codexmanager.rpc-token` 或 LabContext admin token 当作 API Key。
 
-1. 服务器上的 CodexManager 已启动，并已启用 Web 访问认证。
-2. 你已建立 SSH 转发，并能在本机打开 `http://127.0.0.1:48761/`。
-3. 你在 CodexManager 的平台密钥管理中创建了专用 Key。
+请继续使用 Codex CLI 的官方登录与配置方式；CodexManager 负责在服务器上管理已获授权的
+账号、额度信号、会话恢复和 LabContext 工作区。若要让 ChatGPT 网页使用服务器科研工具，请按
+[Tunnel 与插件教程](03-openai-plugin-and-tunnel.md)部署独立、受审计的 MCP 适配层。
 
-在本机 `~/.codex/auth.json`（Windows 为 `%USERPROFILE%\\.codex\\auth.json`）中使用该
-平台 Key：
-
-```json
-{
-  "OPENAI_API_KEY": "replace-with-your-codexmanager-platform-key",
-  "auth_mode": "apikey"
-}
-```
-
-然后在同目录的 `config.toml` 配置私有提供商。模型名必须是你的部署实际允许的模型：
-
-```toml
-model = "replace-with-an-enabled-model"
-model_provider = "codexmanager"
-
-[model_providers.codexmanager]
-name = "CodexManager"
-base_url = "http://127.0.0.1:48761/v1"
-wire_api = "responses"
-```
-
-重启 Codex CLI 后再验证。不要把 OpenAI 登录的 access token、refresh token、服务器
-`codexmanager.rpc-token` 或 LabContext admin token 当作平台 Key。
-
-这些文件只属于本机用户配置，绝不能复制到本仓库、插件目录、截图或 issue 中。
+本机的 `auth.json`、`config.toml` 与任何登录凭据只属于当前用户，绝不能复制到本仓库、插件
+目录、截图或 issue 中。
 
 ## 本地开发
 
