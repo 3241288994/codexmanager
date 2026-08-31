@@ -10,9 +10,9 @@
 
 English: **Bring authorized ChatGPT web workflows to server-side research projects.** CodexManager is a secure, local-first operations layer; connect ChatGPT through a separate reviewed MCP adapter and Secure MCP Tunnel, then manage the server-side research workflow from one place.
 
-## 一眼看懂
+## 概述
 
-| 你想做什么 | CodexManager 提供什么 |
+| 目标 | CodexManager 提供什么 |
 | --- | --- |
 | 用熟悉的 ChatGPT 网页研究服务器项目 | 通过独立 MCP 适配层和 Secure MCP Tunnel，将经过授权的对话工作流接入私有科研环境。 |
 | 不让服务器和管理接口暴露到公网 | 默认回环监听、受保护的 Web 壳、最小化工具策略与私有网络部署边界。 |
