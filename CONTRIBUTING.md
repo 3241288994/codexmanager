@@ -11,7 +11,7 @@ corepack pnpm@10.30.3 -C apps install --frozen-lockfile
 corepack pnpm@10.30.3 -C apps run lint
 corepack pnpm@10.30.3 -C apps run build:desktop
 corepack pnpm@10.30.3 -C apps run test:runtime
-cargo test --workspace --locked
+cargo test --workspace --locked -- --test-threads=1
 ```
 
 ## Ownership boundaries

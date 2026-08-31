@@ -23,7 +23,7 @@ corepack pnpm@10.30.3 -C apps install --frozen-lockfile
 corepack pnpm@10.30.3 -C apps run build
 corepack pnpm@10.30.3 -C apps run test:runtime
 corepack pnpm@10.30.3 -C apps run test:e2e
-cargo test --workspace
+cargo test --workspace --locked -- --test-threads=1
 ```
 
 本仓库不携带 `node_modules`、Rust `target`、Next.js 输出、数据库或运行时凭据；它们应在

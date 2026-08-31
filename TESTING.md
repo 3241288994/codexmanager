@@ -14,13 +14,17 @@ corepack pnpm@10.30.3 -C apps run test:e2e
 ## Rust
 
 ```bash
-cargo test --workspace --locked
+cargo test --workspace --locked -- --test-threads=1
 cargo test -p codexmanager-service --locked labcontext::tests
 cargo test -p codexmanager-web --locked
 cargo test --manifest-path apps/src-tauri/Cargo.toml --locked --lib
 ```
 
 For gateway or protocol changes, add targeted coverage for responses and chat-completions endpoints, streaming and non-streaming flows, and tool calls.
+
+The workspace command intentionally uses one test thread: part of the service suite switches
+between isolated SQLite files through process-wide environment variables. This keeps the
+documented command and CI deterministic.
 
 The desktop updater is intentionally disabled until `CODEXMANAGER_UPDATE_REPO=owner/repository` is configured. Keep it unset in development and public-source checks unless you are testing your own GitHub Release feed.
 

@@ -21,7 +21,7 @@
 - [ ] `corepack pnpm@10.30.3 -C apps run build:desktop`
 - [ ] `corepack pnpm@10.30.3 -C apps run test:runtime`
 - [ ] `corepack pnpm@10.30.3 -C apps run test:e2e`（路由/UI 改动）
-- [ ] `cargo test --workspace --locked`
+- [ ] `cargo test --workspace --locked -- --test-threads=1`
 - [ ] `cargo test --manifest-path apps/src-tauri/Cargo.toml --locked --lib`（Tauri 改动）
 - [ ] `scripts/open-source/preflight.sh`（发布、部署或公开配置改动）
 - [ ] 其他本地验证已说明

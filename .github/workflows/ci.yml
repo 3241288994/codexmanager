@@ -45,7 +45,9 @@ jobs:
       - name: Validate manifests
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
       - name: Run workspace tests
-        run: cargo test --workspace --locked
+        # Service tests temporarily select isolated SQLite databases through
+        # process-wide environment variables, so they must not run concurrently.
+        run: cargo test --workspace --locked -- --test-threads=1
 
   desktop-shell:
     runs-on: macos-14

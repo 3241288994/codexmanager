@@ -19,7 +19,7 @@
   corepack pnpm@10.30.3 -C apps run build:desktop
   corepack pnpm@10.30.3 -C apps run test:runtime
   corepack pnpm@10.30.3 -C apps run test:e2e
-  cargo test --workspace --locked
+  cargo test --workspace --locked -- --test-threads=1
   cargo test --manifest-path apps/src-tauri/Cargo.toml --locked --lib
   scripts/open-source/preflight.sh
   ```
