@@ -128,7 +128,11 @@ fn serve_embedded_path(path: &str) -> Response {
     let Some((served_path, bytes)) = resolve_embedded_asset(wanted) else {
         return (StatusCode::NOT_FOUND, "missing ui").into_response();
     };
-    let mime = embedded_ui::guess_mime(&served_path);
+    embedded_asset_response(&served_path, bytes)
+}
+
+fn embedded_asset_response(served_path: &str, bytes: &'static [u8]) -> Response {
+    let mime = embedded_ui::guess_mime(served_path);
 
     let mut out = Response::new(axum::body::Body::from(bytes));
     out.headers_mut().insert(
@@ -172,7 +176,7 @@ pub(super) fn append_no_store_for_html_documents(response: &mut Response) {
         .insert(header::EXPIRES, HeaderValue::from_static("0"));
 }
 
-/// 函数 `resolve_embedded_asset`
+/// 函数 `embedded_asset_candidates`
 ///
 /// 作者: gaohongshun
 ///
@@ -183,7 +187,7 @@ pub(super) fn append_no_store_for_html_documents(response: &mut Response) {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn resolve_embedded_asset(path: &str) -> Option<(String, &'static [u8])> {
+fn embedded_asset_candidates(path: &str) -> Vec<String> {
     let raw = path.trim_start_matches('/');
     let trimmed = raw.trim_end_matches('/');
     let mut candidates = Vec::with_capacity(3);
@@ -196,10 +200,18 @@ fn resolve_embedded_asset(path: &str) -> Option<(String, &'static [u8])> {
             candidates.push(format!("{trimmed}/index.html"));
         }
     }
+    candidates
+}
 
-    for candidate in candidates {
-        if let Some(bytes) = embedded_ui::read_asset_bytes(&candidate) {
-            return Some((candidate, bytes));
+fn resolve_embedded_asset_path(
+    path: &str,
+    mut asset_exists: impl FnMut(&str) -> bool,
+) -> Option<String> {
+    let raw = path.trim_start_matches('/');
+
+    for candidate in embedded_asset_candidates(path) {
+        if asset_exists(&candidate) {
+            return Some(candidate);
         }
     }
 
@@ -207,7 +219,14 @@ fn resolve_embedded_asset(path: &str) -> Option<(String, &'static [u8])> {
         return None;
     }
 
-    embedded_ui::read_asset_bytes("index.html").map(|bytes| ("index.html".to_string(), bytes))
+    asset_exists("index.html").then(|| "index.html".to_string())
+}
+
+fn resolve_embedded_asset(path: &str) -> Option<(String, &'static [u8])> {
+    let served_path = resolve_embedded_asset_path(path, |candidate| {
+        embedded_ui::read_asset_bytes(candidate).is_some()
+    })?;
+    embedded_ui::read_asset_bytes(&served_path).map(|bytes| (served_path, bytes))
 }
 
 #[cfg(all(test, feature = "embedded-ui"))]
@@ -227,7 +246,10 @@ mod tests {
     /// 无
     #[test]
     fn spa_route_fallback_uses_html_content_type() {
-        let response = serve_embedded_path("accounts");
+        let served_path =
+            resolve_embedded_asset_path("accounts", |candidate| candidate == "index.html")
+                .expect("SPA fallback path");
+        let response = embedded_asset_response(&served_path, b"<html></html>");
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -252,7 +274,7 @@ mod tests {
     /// 无
     #[test]
     fn html_document_uses_no_store_cache_headers() {
-        let response = serve_embedded_path("settings");
+        let response = embedded_asset_response("settings/index.html", b"<html></html>");
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
@@ -280,7 +302,7 @@ mod tests {
 
     #[test]
     fn static_asset_does_not_get_no_store_cache_headers() {
-        let response = serve_embedded_path("favicon.ico");
+        let response = embedded_asset_response("favicon.ico", b"icon");
 
         assert_eq!(response.status(), StatusCode::OK);
         assert!(response.headers().get(header::CACHE_CONTROL).is_none());
@@ -288,16 +310,23 @@ mod tests {
 
     #[test]
     fn directory_route_prefers_embedded_directory_index() {
-        let (served_path, _) = resolve_embedded_asset("sessions/").expect("sessions asset");
+        let served_path = resolve_embedded_asset_path("sessions/", |candidate| {
+            candidate == "sessions/index.html"
+        })
+        .expect("sessions asset");
         assert_eq!(served_path, "sessions/index.html");
 
-        let (served_path, _) = resolve_embedded_asset("sessions").expect("sessions asset");
+        let served_path =
+            resolve_embedded_asset_path("sessions", |candidate| candidate == "sessions/index.html")
+                .expect("sessions asset");
         assert_eq!(served_path, "sessions/index.html");
     }
 
     #[test]
     fn missing_embedded_asset_does_not_fallback_to_index_html() {
-        assert!(resolve_embedded_asset("_next/static/chunks/missing-test.js").is_none());
-        assert!(resolve_embedded_asset("missing-image.png").is_none());
+        assert!(
+            resolve_embedded_asset_path("_next/static/chunks/missing-test.js", |_| false).is_none()
+        );
+        assert!(resolve_embedded_asset_path("missing-image.png", |_| false).is_none());
     }
 }
