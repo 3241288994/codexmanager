@@ -24,15 +24,23 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
 1. **部署 CodexManager。** 先按[服务器部署说明](docs/open-source/01-server-deployment.md)在私有网络中启动服务并验证登录。
 2. **准备 MCP 适配层。** 它应只提供经过筛选、低权限且有输入 schema 的科研工具；不要把管理 RPC、`/v1` 网关或 SSH 转发当作 MCP 服务。
 3. **创建 Tunnel 并在 ChatGPT 添加连接。** 在 OpenAI Platform 创建 Secure MCP Tunnel，在服务器运行 `tunnel-client`，随后在 ChatGPT Developer mode 的 Plugins 中选择该 Tunnel。详细的权限、命令、安全要求和排障步骤见 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)。
+<img width="1356" height="1190" alt="image" src="https://github.com/user-attachments/assets/2a9e0882-cd8d-42f0-887b-96725140550e" />
 
 > **从这里开始：** 若你已拥有可用的 MCP 适配层，直接阅读 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)；若还没有，应先实现并审计适配层，再连接 ChatGPT。
 
 ## 核心能力
 
 - **ChatGPT 科研接入**：将已获授权的 ChatGPT 网页工作流接入私有网络边界内的服务器科研项目，让对话、工作区与工具策略围绕同一研究任务协作。
+  <img width="1682" height="812" alt="image" src="https://github.com/user-attachments/assets/27f83e5e-67a3-4a74-aeec-398cc4647539" />
 - **账号与额度**：通过官方设备授权添加账号，显示实际生效身份、套餐信号与额度快照，并安全切换服务器上的 Codex 凭据。
+  <img width="2358" height="1392" alt="image" src="https://github.com/user-attachments/assets/f197bd8d-97e6-45ba-ba54-9af31e89efdc" />
 - **会话与恢复**：只读取 `state_5.sqlite` 元数据来搜索本地会话，生成 `codex resume` 命令；必要时对单个 provider 索引做可审计、可备份的修复。
+  <img width="2366" height="1278" alt="image" src="https://github.com/user-attachments/assets/63e5a98a-f6b4-4fb9-8c10-37183dc9c444" />
 - **LabContext 工作区**：登记科研工作区、查看模型可见资产、管理工具策略、验证模型可见结果，并跟踪分析任务和研究图。
+  <img width="2434" height="996" alt="image" src="https://github.com/user-attachments/assets/fc8eb835-e473-4a34-a8c9-831898cfbd7f" />
+  <img width="2382" height="1184" alt="image" src="https://github.com/user-attachments/assets/aac5d7cf-b728-4936-96f3-a78aec1813c4" />
+  <img width="2338" height="1240" alt="image" src="https://github.com/user-attachments/assets/b280447d-9625-42e3-96cc-4ea0c8a9b237" />
+
 - **私有网关**：自托管 Web 壳可代理受保护的 OpenAI 兼容 `/v1` 请求。它只适合你已获授权的私有部署，不是公共 API 托管服务。
 
 ## 重要边界
