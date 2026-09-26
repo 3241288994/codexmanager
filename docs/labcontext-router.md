@@ -88,13 +88,27 @@ local Provider，可在 `launcher.env` 设置不经过 shell 展开的
 
 ## ChatGPT 中的调用方式
 
-连接这一个 Tunnel 后，先调用 `list_workspaces`。Router 会给每个结果增加稳定的
+兼容 Provider 暴露 `inspect_path` 时，可以直接粘贴绝对路径，无需注册工作区：
+
+```text
+请读取本地电脑的 /Users/me/Desktop/project/README.md 并总结。
+请列出服务器 /srv/research/project 下两层目录，并找出主要入口文件。
+```
+
+Router 会将 `source=local` 或 `source=server` 交给对应 Provider。hybrid 模式下必须明确来源；
+只配置一个 Provider 时可以省略。可访问范围由对应 Provider 的 `registry.allowed_roots` 决定，
+目录返回深度和条目数受限，凭据、二进制、大文件和拒绝规则仍然生效。
+
+需要长期项目上下文时，再调用 `list_workspaces`。Router 会给每个结果增加稳定的
 `workspace_ref`，例如 `local:paper-a` 或 `server:paper-a`。之后将这个值传给
 `workspace_overview`、`research_context` 等工具；异步任务返回的 `job_id` 也会带 Provider 前缀。
 
 当只有一个 Provider 暴露某工具时，Router 可以自动选择它；当两个 Provider 中存在同名
 `workspace_id` 时，必须使用 `workspace_ref`，以免查询到错误电脑上的项目。某个 Provider 临时
 离线不会阻止另一个 Provider 的工作区被列出，返回结果会同时标记各来源状态。
+
+路径直读与工作区互不替代：前者适合临时查看，后者提供项目概述、证据索引、实验、研究图和
+Codex 会话衔接。旧 Provider 不提供 `inspect_path` 时，Router 会继续正常路由原有工作区工具。
 
 ## Web 控制台
 

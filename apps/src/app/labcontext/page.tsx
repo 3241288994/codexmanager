@@ -97,9 +97,9 @@ export default function LabContextPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">CodexManager · LabContext</p>
                   <Badge variant="outline">{location === "local" ? "当前设备" : "远程连接"}</Badge>
                 </div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">让 ChatGPT 读懂你的科研项目</h1>
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">让 ChatGPT 读懂你的项目</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  在一个控制台管理服务器与本机目录，检查模型实际可见内容，并持续维护项目概述与研究图。
+                  绝对路径可以临时直读；长期项目可固定为工作区，持续维护概述、实验与研究图。
                 </p>
               </div>
             </div>
@@ -124,11 +124,20 @@ export default function LabContextPage() {
           <Laptop className="mt-0.5 size-4 shrink-0 text-primary" />
           <p className="text-muted-foreground">
             {router.localAvailable
-              ? "已连接本机 LabContext Router；这个网页现在可以同时管理服务器与本机科研工作区。"
+              ? "已连接本机 LabContext Router；这个网页现在可以同时管理服务器与本机工作区。"
               : "当前是 Web 控制台，可管理服务器项目；启动本机 labcontext 后，这里会自动解锁“本地电脑”。"}
           </p>
         </div>
       ) : null}
+
+      {data?.toolPolicy.tools.some((tool) => tool.name === "inspect_path" && tool.enabled) ? <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm">
+        <FolderGit2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">路径直读无需注册：</span>
+          在 ChatGPT 中粘贴当前连接可访问的绝对文件或文件夹路径，并说明“本地”或“服务器”。
+          添加工作区仅用于需要长期上下文、实验索引和研究图的项目。
+        </p>
+      </div> : null}
 
       {overviewQuery.isError ? (
         <Card className="glass-card border-destructive/30">
@@ -172,7 +181,7 @@ export default function LabContextPage() {
               </div> : null}
               <div className="flex flex-col gap-3 rounded-xl border border-primary/15 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
-                  <span className="rounded-full bg-background px-2.5 py-1 ring-1 ring-border">1. 目录已注册</span>
+                  <span className="rounded-full bg-background px-2.5 py-1 ring-1 ring-border">1. 路径已授权或工作区已注册</span>
                   <ArrowRight className="size-3 text-muted-foreground" />
                   <span className="rounded-full bg-background px-2.5 py-1 ring-1 ring-border">2. MCP 工具可用</span>
                   <ArrowRight className="size-3 text-muted-foreground" />
@@ -192,13 +201,13 @@ export default function LabContextPage() {
                     <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                       {location === "local" ? <HardDrive className="size-7" /> : <FolderGit2 className="size-7" />}
                     </div>
-                    <h3 className="mt-4 text-base font-semibold">从第一个科研项目开始</h3>
+                    <h3 className="mt-4 text-base font-semibold">还没有固定工作区</h3>
                     <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
                       {location === "local"
-                        ? "选择本机项目文件夹，CodexManager 只授权这个目录，并为 ChatGPT 准备可查询的项目上下文。"
-                        : "填写服务器上的项目绝对路径，LabContext 会扫描项目文件、Git 状态与最近会话。"}
+                        ? "临时查看可以直接在 ChatGPT 粘贴本机绝对路径；固定后可获得项目概述、实验索引与研究图。"
+                        : "临时查看可以直接在 ChatGPT 粘贴服务器绝对路径；固定后 LabContext 会维护长期项目上下文。"}
                     </p>
-                    <Button className="mt-5" onClick={openWorkspaceDialog}><Plus />添加第一个工作区<ArrowRight /></Button>
+                    <Button className="mt-5" onClick={openWorkspaceDialog}><Plus />固定第一个工作区<ArrowRight /></Button>
                   </CardContent>
                 </Card>
               ) : null}
@@ -288,7 +297,7 @@ export default function LabContextPage() {
 
       <Dialog open={workspaceDialog} onOpenChange={setWorkspaceDialog}>
         <DialogContent className="md:max-w-2xl">
-          <DialogHeader><DialogTitle>添加科研工作区</DialogTitle><DialogDescription>两步完成注册：先选择项目位置，再确认名称与目录。添加后会自动扫描项目并生成首版概述。</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>添加工作区</DialogTitle><DialogDescription>两步完成注册：先选择项目位置，再确认名称与目录。添加后会自动扫描项目并生成首版概述。</DialogDescription></DialogHeader>
           <div className="grid gap-5 py-2">
             <div className="grid gap-2">
               <Label><span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">1</span>项目位于哪里？</Label>

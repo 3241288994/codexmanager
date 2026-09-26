@@ -9,7 +9,7 @@ async function readSource(relativePath) {
   return fs.readFile(path.join(appsRoot, relativePath), "utf8");
 }
 
-test("本地科研工作区通过桌面壳或可选回环 Router 暴露", async () => {
+test("本地工作区通过桌面壳或可选回环 Router 暴露", async () => {
   const [client, routerClient, page, hook, webCommands, registry] = await Promise.all([
     readSource("src/lib/api/labcontext-client.ts"),
     readSource("src/lib/api/labcontext-router-client.ts"),
@@ -40,7 +40,7 @@ test("本地科研工作区通过桌面壳或可选回环 Router 暴露", async 
   assert.match(page, /readOnly=\{workspaceForm\.location === "local" && isDesktopRuntime\}/);
 });
 
-test("科研工作区在隐藏页面暂停轮询并优化目录选择", async () => {
+test("工作区在隐藏页面暂停轮询并优化目录选择", async () => {
   const hook = await readSource("src/hooks/useLabContextWorkspace.ts");
 
   assert.match(hook, /document\.visibilityState === "visible"/);
@@ -57,8 +57,8 @@ test("本地目录注册经过原生选择器和回环地址限制", async () =>
   assert.match(localCommands, /FileDialog::new\(\)[\s\S]*?\.pick_folder\(\)/);
   assert.match(localCommands, /fs::canonicalize/);
   assert.match(localCommands, /ensure_selected_root/);
-  assert.match(localCommands, /不能把文件系统根目录授权为科研工作区/);
-  assert.match(localCommands, /不能把整个用户目录授权为科研工作区/);
+  assert.match(localCommands, /不能把文件系统根目录授权为工作区/);
+  assert.match(localCommands, /不能把整个用户目录授权为工作区/);
   assert.match(productionSource, /127\.0\.0\.1/);
   assert.match(productionSource, /localhost/);
   assert.match(productionSource, /"::1"/);

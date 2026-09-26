@@ -67,7 +67,18 @@ const labContextOverview = {
     availableEfforts: { "gpt-5.4": ["medium"] },
     appliesTo: "new analysis jobs",
   },
-  toolPolicy: { profile: "research", tools: [] },
+  toolPolicy: {
+    profile: "research",
+    tools: [{
+      name: "inspect_path",
+      description: "Direct allowed-path inspection without workspace registration",
+      latencyClass: "instant",
+      dependencies: [],
+      enabled: true,
+      readOnly: true,
+      computeCost: "none",
+    }],
+  },
   activity: { records: [], totalReturned: 0 },
   jobs: { jobs: [], statusCounts: {} },
 };
@@ -289,8 +300,9 @@ test("the maintained account, analytics, session, and LabContext routes load thr
   await expect(page.getByText("Session Demo", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("本地会话", { exact: true })).toBeVisible();
 
-  await page.getByRole("link", { name: "科研工作区" }).click();
-  await expect(page.getByRole("heading", { name: "让 ChatGPT 读懂你的科研项目" })).toBeVisible();
+  await page.getByRole("link", { name: "工作区" }).click();
+  await expect(page.getByRole("heading", { name: "让 ChatGPT 读懂你的项目" })).toBeVisible();
+  await expect(page.getByText("路径直读无需注册：")).toBeVisible();
   await expect(page.getByRole("button", { name: "本地电脑" }).first()).toBeDisabled();
   await expect(page.getByText("当前是 Web 控制台，可管理服务器项目")).toBeVisible();
   await expect(page.getByText("Example Research", { exact: true })).toBeVisible();

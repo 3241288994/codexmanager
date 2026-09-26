@@ -64,7 +64,9 @@ Tunnel 直接连接单个 LabContext `/mcp`，也可使用可选 Router 聚合�
 CodexManager 桌面版可以通过回环适配直接管理本机 LabContext，但这仍只是管理连接。若要让
 ChatGPT 网页使用本机项目，需要在本机运行 MCP endpoint 和 Tunnel。统一 Router 可让一条
 Tunnel 同时路由本机与 SSH 转发后的服务器 Provider，同时保持两套 Provider 独立安装。配置见
-[统一 LabContext Router](../labcontext-router.md)，目录授权见[本地科研工作区](../local-workspaces.md)。
+[统一 LabContext Router](../labcontext-router.md)，目录授权见[本地工作区](../local-workspaces.md)。
+兼容 Provider 暴露 `inspect_path` 后，ChatGPT 也可以直接读取其 `registry.allowed_roots` 下的本机
+或服务器绝对路径，无需先注册工作区；hybrid 模式下应在提示词中明确来源。
 
 ## 插件模板的使用方式
 

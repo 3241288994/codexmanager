@@ -17,7 +17,7 @@ export function Header() {
   const title = pathname.startsWith("/analytics")
     ? "用量分析"
     : pathname.startsWith("/labcontext")
-      ? "科研工作区"
+      ? "工作区"
       : pathname.startsWith("/sessions")
         ? "会话与恢复"
         : "账号与额度";

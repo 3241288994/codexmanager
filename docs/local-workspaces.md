@@ -1,6 +1,6 @@
-# 本地科研工作区
+# 本地工作区
 
-CodexManager 可以在同一个“科研工作区”页面中切换两套独立连接：
+CodexManager 可以在同一个“工作区”页面中切换两套独立连接：
 
 ```text
 服务器工作区：桌面/Web UI → CodexManager service → 服务器 LabContext
@@ -30,9 +30,22 @@ export CODEXMANAGER_LOCAL_LABCONTEXT_ADMIN_TOKEN_FILE=/absolute/private/path/adm
 连接局域网、Docker host gateway 或公网管理端。token 文件应仅允许当前用户读取，也不要把它
 放入项目目录。
 
-## 添加本机项目
+## 路径直读：无需添加工作区
 
-1. 打开“科研工作区”，切换到“本地电脑”。
+兼容 LabContext Provider 提供 `inspect_path` 后，可以直接在 ChatGPT 中粘贴绝对路径：
+
+```text
+请读取本地电脑的 /Users/me/Desktop/project/README.md。
+请查看服务器 /srv/research/project 下两层目录，并总结项目入口。
+```
+
+这类请求不会修改 Provider 配置，也不会在项目中创建 `.labcontext` 文件。路径必须位于对应
+Provider 的 `registry.allowed_roots` 下；hybrid 模式应明确说“本地电脑”或“服务器”。目录只返回
+有限深度和有限条目，后续文件由模型按需读取，以控制内存和上下文占用。
+
+## 固定为工作区
+
+1. 打开“工作区”，切换到“本地电脑”。
 2. 点击“添加工作区”并选择“本地电脑”。桌面版使用系统选择器；Web 版填写 local Provider
    所在电脑可访问的绝对路径。
 3. 确认名称与具体项目目录，再点击“添加并自动配置”。
@@ -52,7 +65,7 @@ ChatGPT 网页版
   → 本机专用 Secure MCP Tunnel
   → 统一 LabContext Router (`127.0.0.1:1460/mcp`)
   → 本机和/或服务器 LabContext 的受限模型工具
-  → 已显式注册的项目目录
+  → 已授权的临时绝对路径，或已固定的工作区
 ```
 
 在 OpenAI Platform 为本机连接创建或选择 Tunnel，然后在**当前电脑**上运行
@@ -81,5 +94,5 @@ tunnel-client run --profile codexmanager-local
 - 管理连接禁用系统代理，只允许回环 HTTP 地址，admin token 不返回前端。
 - 桌面版添加目录必须经过原生选择器的一次性授权；Web + Router 模式应依赖 Provider 的路径规则。
 - CodexManager service 本身不提供 MCP endpoint；Router 是可选、独立部署的最小路由层。
-- 工作区授权不等于允许模型读取项目中的所有内容；最终可见范围仍由 LabContext 资产规则和
-  工具策略决定。
+- 路径直读只访问 `registry.allowed_roots` 下经过校验的文件和有限目录树；工作区工具的最终可见
+  范围仍由 LabContext 资产规则和工具策略决定。

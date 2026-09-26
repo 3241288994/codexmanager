@@ -12,7 +12,7 @@ const ROUTES = [
   { href: "/", label: "账号与额度", icon: Gauge },
   { href: "/analytics", label: "用量分析", icon: BarChart3 },
   { href: "/sessions", label: "会话与恢复", icon: History },
-  { href: "/labcontext", label: "科研工作区", icon: BookOpenCheck },
+  { href: "/labcontext", label: "工作区", icon: BookOpenCheck },
 ] as const;
 
 export function Sidebar() {

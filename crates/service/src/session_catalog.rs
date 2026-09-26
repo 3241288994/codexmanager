@@ -480,7 +480,7 @@ mod tests {
 
     #[test]
     fn long_titles_are_bounded_without_breaking_unicode() {
-        assert_eq!(truncate_chars("科研工作区", 3), "科研工…");
+        assert_eq!(truncate_chars("工作区管理", 3), "工作区…");
         assert_eq!(truncate_chars("HVS", 10), "HVS");
     }
 

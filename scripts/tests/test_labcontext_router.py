@@ -65,6 +65,7 @@ class FakeLabContextHandler(BaseHTTPRequestHandler):
                 {"name": "list_workspaces", "description": "List", "inputSchema": {"type": "object", "properties": {}}},
                 {"name": "workspace_overview", "description": "Overview", "inputSchema": {"type": "object", "properties": {"workspace_id": {"type": "string"}}, "required": ["workspace_id"]}},
                 {"name": "get_job", "description": "Job", "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}}},
+                {"name": "inspect_path", "description": "Direct path", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
             ]
             self.reply({"jsonrpc": "2.0", "id": value.get("id"), "result": {"tools": tools}})
             return
@@ -78,6 +79,8 @@ class FakeLabContextHandler(BaseHTTPRequestHandler):
             }
         elif tool == "get_job":
             payload = {"job_id": arguments.get("job_id"), "status": "completed"}
+        elif tool == "inspect_path":
+            payload = {"path": arguments.get("path"), "provider": self.source_name, "path_type": "file"}
         else:
             payload = {"workspace_id": arguments.get("workspace_id"), "provider": self.source_name}
         result = {
@@ -131,6 +134,17 @@ class RouterTest(unittest.TestCase):
         schema = next(item["inputSchema"] for item in tools if item["name"] == "workspace_overview")
         self.assertNotIn("required", schema)
         self.assertIn({"required": ["workspace_ref"]}, schema["allOf"][0]["anyOf"])
+
+    def test_direct_path_schema_requires_source_without_workspace_registration(self) -> None:
+        tools, _ = self.router._tools(force=True)
+        schema = next(item["inputSchema"] for item in tools if item["name"] == "inspect_path")
+        self.assertEqual(set(schema["required"]), {"path", "source"})
+        self.assertNotIn("workspace_ref", schema["properties"])
+        result = self.router.call_tool("inspect_path", {
+            "source": "server", "path": "/mnt/research/project/README.md",
+        })
+        self.assertEqual(result["structuredContent"]["provider"], "server")
+        self.assertEqual(result["structuredContent"]["source"], "server")
 
     def test_requires_a_qualified_reference_for_ambiguous_ids(self) -> None:
         with self.assertRaisesRegex(RouterError, "exists in multiple providers"):

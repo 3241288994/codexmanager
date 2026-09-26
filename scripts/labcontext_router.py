@@ -33,6 +33,7 @@ except ModuleNotFoundError:  # Python 3.9/3.10 compatibility
 PROTOCOL_VERSION = "2025-06-18"
 DEFAULT_LISTEN_ADDR = "127.0.0.1:1460"
 DEFAULT_CONFIG_PATH = Path("~/.config/labcontext/config.toml").expanduser()
+NON_WORKSPACE_TOOLS = {"list_workspaces", "get_job", "inspect_path"}
 ADMIN_OPERATIONS: dict[str, tuple[str, str]] = {
     "overview": ("GET", "overview"),
     "setDefaultWorkspace": ("POST", "default-workspace"),
@@ -377,7 +378,7 @@ class LabContextRouter:
                     "enum": [*source_ids, "all"] if name == "list_workspaces" else source_ids,
                     "description": "Optional LabContext provider. Omit only when one source is configured or the workspace reference identifies it.",
                 }
-                if name not in {"list_workspaces", "get_job"}:
+                if name not in NON_WORKSPACE_TOOLS:
                     properties["workspace_ref"] = {
                         "type": "string",
                         "description": "Stable source-qualified workspace reference returned by list_workspaces, for example server:project-id.",
@@ -393,9 +394,18 @@ class LabContextRouter:
                                 {"required": ["workspace_ref"]},
                             ],
                         })
+                if name == "inspect_path" and len(source_ids) > 1:
+                    required = schema.setdefault("required", [])
+                    if "source" not in required:
+                        required.append("source")
                 tool["description"] = (
                     str(tool.get("description") or "")
-                    + " Routed by LabContext Router across optional providers."
+                    + (
+                        " Routed by LabContext Router across optional providers. Pass source=local or "
+                        "source=server when more than one provider exposes this direct-path tool."
+                        if name == "inspect_path"
+                        else " Routed by LabContext Router across optional providers."
+                    )
                 ).strip()
             result = list(merged.values())
             self._tool_cache = (time.monotonic(), result, availability)
@@ -571,10 +581,12 @@ class LabContextRouter:
             result = {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": True}},
-                "serverInfo": {"name": "LabContext Router", "version": "0.1.0"},
+                "serverInfo": {"name": "LabContext Router", "version": "0.2.0"},
                 "instructions": (
-                    "Unified LabContext router. Start with list_workspaces. Use workspace_ref from its "
-                    "response whenever more than one provider is configured."
+                    "Unified LabContext router. When the user provides an absolute file or directory path, "
+                    "use inspect_path directly and identify source=local or source=server; no workspace "
+                    "registration is needed. For persistent project context, start with list_workspaces and "
+                    "use workspace_ref from its response whenever more than one provider is configured."
                 ),
             }
             return HTTPStatus.OK, {"jsonrpc": "2.0", "id": request_id, "result": result}, uuid.uuid4().hex
@@ -649,7 +661,7 @@ class LabContextRouter:
 
 
 class RouterHandler(BaseHTTPRequestHandler):
-    server_version = "LabContextRouter/0.1"
+    server_version = "LabContextRouter/0.2"
 
     @property
     def router(self) -> LabContextRouter:

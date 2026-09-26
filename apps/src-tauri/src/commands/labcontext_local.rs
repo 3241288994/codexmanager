@@ -170,13 +170,13 @@ fn canonical_workspace_root(path: &Path) -> Result<PathBuf, String> {
         return Err("所选工作区不是目录".to_string());
     }
     if canonical.parent().is_none() {
-        return Err("不能把文件系统根目录授权为科研工作区".to_string());
+        return Err("不能把文件系统根目录授权为工作区".to_string());
     }
     if let Ok(home) = home_dir()
         .and_then(|path| fs::canonicalize(path).map_err(|err| format!("解析用户目录失败：{err}")))
     {
         if canonical == home {
-            return Err("不能把整个用户目录授权为科研工作区，请选择具体项目目录".to_string());
+            return Err("不能把整个用户目录授权为工作区，请选择具体项目目录".to_string());
         }
     }
     Ok(canonical)
@@ -245,7 +245,7 @@ pub async fn app_labcontext_pick_local_workspace_directory() -> Result<Value, St
             .lock()
             .map_err(|_| "本地目录授权状态不可用".to_string())? = None;
         let Some(path) = FileDialog::new()
-            .set_title("选择本地科研项目目录")
+            .set_title("选择本地项目目录")
             .pick_folder()
         else {
             return Ok(result_envelope(serde_json::json!({
@@ -300,7 +300,7 @@ pub async fn app_labcontext_local_upsert_workspace(
         Ok(result_envelope(value))
     })
     .await
-    .map_err(|err| format!("添加本地科研工作区失败：{err}"))?
+    .map_err(|err| format!("添加本地工作区失败：{err}"))?
 }
 
 #[cfg(test)]
