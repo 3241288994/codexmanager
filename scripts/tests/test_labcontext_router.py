@@ -12,6 +12,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
+from labcontext import ssh_command  # noqa: E402
 from labcontext_router import LabContextRouter, ProviderConfig, RouterConfig, RouterError  # noqa: E402
 
 
@@ -177,6 +178,22 @@ class LauncherTest(unittest.TestCase):
             environment = env_file.read_text(encoding="utf-8")
             self.assertIn("LABCONTEXT_ENABLE_SSH=1", environment)
             self.assertIn("LABCONTEXT_SSH_HOST=research-host", environment)
+
+    def test_ssh_command_preserves_identity_keepalive_and_reverse_proxy(self) -> None:
+        command = ssh_command({
+            "LABCONTEXT_SSH_HOST": "research-host",
+            "LABCONTEXT_SSH_IDENTITY_FILE": "/private/key",
+            "LABCONTEXT_SSH_CONFIG_FILE": "/dev/null",
+            "LABCONTEXT_SERVER_MCP_LOCAL_PORT": "1455",
+            "LABCONTEXT_SERVER_MCP_REMOTE_PORT": "1455",
+            "LABCONTEXT_SERVER_WEB_LOCAL_PORT": "48761",
+            "LABCONTEXT_SERVER_WEB_REMOTE_PORT": "48761",
+            "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
+            "LABCONTEXT_LOCAL_PROXY_PORT": "7897",
+        })
+        self.assertIn("/private/key", command)
+        self.assertIn("ServerAliveInterval=30", command)
+        self.assertIn("127.0.0.1:17987:127.0.0.1:7897", command)
 
 
 if __name__ == "__main__":

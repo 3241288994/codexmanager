@@ -57,6 +57,11 @@ labcontext init hybrid --ssh-host your-server --tunnel-profile labcontext
 每个启用了管理桥的 Provider 都要有对应 token 文件。token 不应写入 TOML、Git 或浏览器；
 Router 只从 `admin_token_file` 读取它，并只监听 IPv4 回环地址。
 
+需要指定 SSH identity、绕过个人 SSH config，或保留服务器到本机代理的反向转发时，可在私有
+`launcher.env` 设置 `LABCONTEXT_SSH_IDENTITY_FILE`、`LABCONTEXT_SSH_CONFIG_FILE`、
+`LABCONTEXT_SERVER_PROXY_REMOTE_PORT` 与 `LABCONTEXT_LOCAL_PROXY_PORT`。已有 API-key 文件可通过
+`LABCONTEXT_SECRET_ENV_FILE` 引用，不需要复制密钥内容。
+
 ## Tunnel 与日常启动
 
 Tunnel profile 应指向 Router，而不是某个 Provider：

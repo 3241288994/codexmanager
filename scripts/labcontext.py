@@ -104,6 +104,9 @@ cors_origins = ["http://127.0.0.1:48761", "http://localhost:48761"]
             f"LABCONTEXT_ROUTER_CONFIG={config_path}",
             f"LABCONTEXT_ENABLE_SSH={'1' if enable_ssh else '0'}",
             f"LABCONTEXT_SSH_HOST={args.ssh_host or ''}",
+            "LABCONTEXT_SSH_BATCH_MODE=1",
+            "LABCONTEXT_SSH_SERVER_ALIVE_INTERVAL=30",
+            "LABCONTEXT_SSH_SERVER_ALIVE_COUNT_MAX=3",
             "LABCONTEXT_SERVER_MCP_LOCAL_PORT=1455",
             "LABCONTEXT_SERVER_MCP_REMOTE_PORT=1455",
             "LABCONTEXT_SERVER_WEB_LOCAL_PORT=48761",
@@ -111,6 +114,12 @@ cors_origins = ["http://127.0.0.1:48761", "http://localhost:48761"]
             f"LABCONTEXT_ENABLE_TUNNEL={'1' if args.tunnel_profile else '0'}",
             f"LABCONTEXT_TUNNEL_PROFILE={args.tunnel_profile or 'labcontext'}",
             "LABCONTEXT_TUNNEL_CLIENT=tunnel-client",
+            "# LABCONTEXT_SECRET_ENV_FILE=~/.config/labcontext/secrets.env",
+            "# Optional SSH settings: identity/config files and a reverse proxy forwarding pair.",
+            "# LABCONTEXT_SSH_IDENTITY_FILE=~/.ssh/id_ed25519",
+            "# LABCONTEXT_SSH_CONFIG_FILE=~/.ssh/config",
+            "# LABCONTEXT_SERVER_PROXY_REMOTE_PORT=17987",
+            "# LABCONTEXT_LOCAL_PROXY_PORT=7897",
             "# Optional: start an independently installed local Provider with the same command.",
             "# LABCONTEXT_LOCAL_PROVIDER_COMMAND=labcontext-provider --listen 127.0.0.1:1456",
             "",
@@ -169,7 +178,19 @@ def doctor(config_path: Path, values: dict[str, str]) -> int:
 
 
 def ssh_command(values: dict[str, str]) -> list[str]:
-    command = [require_program("ssh"), "-N", "-o", "ExitOnForwardFailure=yes"]
+    command = [require_program("ssh")]
+    config_file = values.get("LABCONTEXT_SSH_CONFIG_FILE")
+    if config_file:
+        command.extend(["-F", config_file])
+    command.extend(["-N", "-o", "ExitOnForwardFailure=yes"])
+    if parse_bool(values.get("LABCONTEXT_SSH_BATCH_MODE"), default=True):
+        command.extend(["-o", "BatchMode=yes"])
+    alive_interval = values.get("LABCONTEXT_SSH_SERVER_ALIVE_INTERVAL", "30")
+    alive_count = values.get("LABCONTEXT_SSH_SERVER_ALIVE_COUNT_MAX", "3")
+    command.extend([
+        "-o", f"ServerAliveInterval={alive_interval}",
+        "-o", f"ServerAliveCountMax={alive_count}",
+    ])
     identity = values.get("LABCONTEXT_SSH_IDENTITY_FILE")
     if identity:
         command.extend(["-i", identity])
@@ -180,6 +201,12 @@ def ssh_command(values: dict[str, str]) -> list[str]:
     remote_web = values.get("LABCONTEXT_SERVER_WEB_REMOTE_PORT", "48761")
     if local_web:
         command.extend(["-L", f"127.0.0.1:{local_web}:127.0.0.1:{remote_web}"])
+    remote_proxy = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT")
+    local_proxy = values.get("LABCONTEXT_LOCAL_PROXY_PORT")
+    if bool(remote_proxy) != bool(local_proxy):
+        fail("reverse proxy forwarding requires both LABCONTEXT_SERVER_PROXY_REMOTE_PORT and LABCONTEXT_LOCAL_PROXY_PORT")
+    if remote_proxy and local_proxy:
+        command.extend(["-R", f"127.0.0.1:{remote_proxy}:127.0.0.1:{local_proxy}"])
     command.append(values["LABCONTEXT_SSH_HOST"])
     return command
 
@@ -282,6 +309,11 @@ def main() -> int:
     subparsers.add_parser("doctor", help="validate configuration and dependencies")
     args = parser.parse_args()
     values = load_env(args.env_file.expanduser())
+    secret_env_file = values.get("LABCONTEXT_SECRET_ENV_FILE")
+    if secret_env_file:
+        secret_values = load_env(Path(secret_env_file).expanduser())
+        secret_values.update(values)
+        values = secret_values
     config_path = (args.config or Path(values.get("LABCONTEXT_ROUTER_CONFIG", str(DEFAULT_CONFIG_PATH)))).expanduser()
     if args.command == "init":
         args.config = config_path
