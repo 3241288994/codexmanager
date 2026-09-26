@@ -7,6 +7,7 @@ pub mod apikey;
 pub mod codex_profile;
 pub mod dashboard;
 pub mod labcontext;
+pub mod labcontext_local;
 pub mod login;
 pub mod plugin;
 pub mod quota;

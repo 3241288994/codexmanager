@@ -6,7 +6,7 @@
 
 **完整接入路径：** `ChatGPT 网页版` → `Secure MCP Tunnel` → `独立、受审计的 MCP 适配层` → `CodexManager / LabContext` → `科研服务器`
 
-[部署到服务器](docs/open-source/01-server-deployment.md) · [连接 ChatGPT](docs/open-source/03-openai-plugin-and-tunnel.md) · [安全边界](#重要边界)
+[部署到服务器](docs/open-source/01-server-deployment.md) · [连接 ChatGPT](docs/open-source/03-openai-plugin-and-tunnel.md) · [本地科研工作区](docs/local-workspaces.md) · [安全边界](#重要边界)
 
 English: **Bring authorized ChatGPT web workflows to server-side research projects.** CodexManager is a secure, local-first operations layer; connect ChatGPT through a separate reviewed MCP adapter and Secure MCP Tunnel, then manage the server-side research workflow from one place.
 
@@ -14,7 +14,7 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
 
 | 目标 | CodexManager 提供什么 |
 | --- | --- |
-| 用熟悉的 ChatGPT 网页研究服务器项目 | 通过独立 MCP 适配层和 Secure MCP Tunnel，将经过授权的对话工作流接入私有科研环境。 |
+| 用熟悉的 ChatGPT 网页研究服务器或本机项目 | 通过独立 MCP 适配层和 Secure MCP Tunnel，将经过授权的对话工作流接入私有科研环境。 |
 | 不让服务器和管理接口暴露到公网 | 默认回环监听、受保护的 Web 壳、最小化工具策略与私有网络部署边界。 |
 | 连续推进而不是反复配置 | 集中管理 Codex 身份和额度信号，切换服务器凭据，并恢复本地会话。 |
 | 让模型围绕真实研究任务工作 | 管理 LabContext 工作区、模型可见资产、工具策略、分析任务和研究图。 |
@@ -37,7 +37,7 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
 - **用量分析与价格参考**：按账号保存每日 Credits、Token 与交互历史，提供趋势图、JSON/CSV 导出，并通过两份官方价格表交叉验证后给出非账单性质的 USD 参考金额。详见[用量分析说明](docs/usage-analytics.md)。
 - **会话与恢复**：只读取 `state_5.sqlite` 元数据来搜索本地会话，生成 `codex resume` 命令；必要时对单个 provider 索引做可审计、可备份的修复。
   <img width="2366" height="1278" alt="image" src="https://github.com/user-attachments/assets/63e5a98a-f6b4-4fb9-8c10-37183dc9c444" />
-- **LabContext 工作区**：登记科研工作区、查看模型可见资产、管理工具策略、验证模型可见结果，并跟踪分析任务和研究图。
+- **LabContext 工作区**：桌面版可在服务器与本地电脑之间切换，通过系统文件夹选择器安全登记本机项目；两端均可查看模型可见资产、管理工具策略、验证返回结果，并跟踪分析任务和研究图。详见[本地科研工作区](docs/local-workspaces.md)。
   <img width="2434" height="996" alt="image" src="https://github.com/user-attachments/assets/fc8eb835-e473-4a34-a8c9-831898cfbd7f" />
   <img width="2382" height="1184" alt="image" src="https://github.com/user-attachments/assets/aac5d7cf-b728-4936-96f3-a78aec1813c4" />
   <img width="2338" height="1240" alt="image" src="https://github.com/user-attachments/assets/b280447d-9625-42e3-96cc-4ea0c8a9b237" />
@@ -87,6 +87,10 @@ export LABCTX_ADMIN_TOKEN_FILE="$HOME/.local/state/labcontext/admin.token"
 ```
 
 Docker 部署需要把管理员 token 以只读方式挂入容器。请按 [服务器部署说明](docs/open-source/01-server-deployment.md) 使用 `deploy/docker-compose.labcontext.example.yml` 覆盖文件；它仅允许 `host.docker.internal` 这一 Docker 宿主机网关，不接受任意远程管理地址。
+
+桌面版还可直接管理当前电脑上的另一套 LabContext，并通过原生系统选择器添加本机目录。该连接
+使用独立的 `CODEXMANAGER_LOCAL_LABCONTEXT_*` 环境变量且严格限制为回环地址；配置和 ChatGPT
+连接方式见[本地科研工作区说明](docs/local-workspaces.md)。
 
 ## 本地开发
 

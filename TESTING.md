@@ -9,7 +9,7 @@ corepack pnpm@10.30.3 -C apps run test:runtime
 corepack pnpm@10.30.3 -C apps run test:e2e
 ```
 
-`test:runtime` validates the maintained browser/desktop transport surface, command registration, analytics calculations, and key utility behavior. `test:e2e` builds the static export and exercises the four supported routes with mocked service responses. Install Playwright browsers when prompted by Playwright.
+`test:runtime` validates the maintained browser/desktop transport surface, command registration, local-workspace security boundaries, analytics calculations, and key utility behavior. `test:e2e` builds the static export and exercises the four supported routes with mocked service responses, including the Web-mode block on local folder access. Install Playwright browsers when prompted by Playwright.
 
 ## Rust
 

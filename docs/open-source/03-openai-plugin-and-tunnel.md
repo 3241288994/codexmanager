@@ -57,6 +57,13 @@ Docker 宿主机网关还是私有转发，它都不是 MCP 地址。若要让 C
 一个 MCP 适配层，仅向模型公开经授权的只读或明确确认的工具，并由该适配层调用受限的
 CodexManager/LabContext 能力。
 
+### 本地电脑上的工作区
+
+CodexManager 桌面版可以通过回环适配直接管理本机 LabContext，但这仍只是管理连接。若要让
+ChatGPT 网页使用本机项目，需要在本机运行独立 MCP 适配层和一条本机专用 Tunnel；服务器上
+已有的 Tunnel 不会自动获得个人电脑目录。目录授权、环境变量和连接拓扑见
+[本地科研工作区](../local-workspaces.md)。
+
 ## 插件模板的使用方式
 
 公开仓库中先验证技能型插件的 manifest 和公开边界：

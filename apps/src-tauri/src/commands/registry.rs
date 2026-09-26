@@ -38,6 +38,9 @@ macro_rules! invoke_handler {
             crate::commands::labcontext::service_labcontext_apply_research_map_patch,
             crate::commands::labcontext::service_labcontext_review_research_map,
             crate::commands::labcontext::service_labcontext_research_map_proposal_action,
+            crate::commands::labcontext_local::app_labcontext_pick_local_workspace_directory,
+            crate::commands::labcontext_local::app_labcontext_local_call,
+            crate::commands::labcontext_local::app_labcontext_local_upsert_workspace,
             // session catalog
             crate::commands::session_catalog::service_session_catalog_list,
             crate::commands::session_catalog::service_session_catalog_repair_provider_index,

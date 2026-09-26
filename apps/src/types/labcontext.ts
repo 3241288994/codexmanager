@@ -1,4 +1,5 @@
 export type LabContextHealthState = "healthy" | "degraded" | "unknown" | "down";
+export type LabContextLocation = "server" | "local";
 
 export interface LabContextAssetCoverage {
   assetId: string;
@@ -16,6 +17,7 @@ export interface LabContextAssetCoverage {
 }
 
 export interface LabContextWorkspace {
+  location: LabContextLocation;
   workspaceId: string;
   name: string;
   root: string;
@@ -43,6 +45,8 @@ export interface LabContextWorkspace {
   coverage: { fileCount: number; totalBytes: number; emptyAssets: number };
   researchMap: ResearchMapFocusCapsule & { pendingProposals: number; error?: string };
 }
+
+export type LabContextWorkspaceTarget = Pick<LabContextWorkspace, "location" | "workspaceId">;
 
 export type ResearchMapNodeType = "core_idea" | "claim" | "branch" | "current_target" | "experiment" | "evidence" | "decision" | "risk";
 

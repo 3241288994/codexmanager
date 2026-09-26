@@ -108,7 +108,8 @@ function proposalTitle(proposal: ResearchMapProposal): string {
 
 export function ResearchMapPanel({ workspace }: { workspace: LabContextWorkspace }) {
   const queryClient = useQueryClient();
-  const queryKey = ["labcontext", "research-map", workspace.workspaceId];
+  const target = { location: workspace.location, workspaceId: workspace.workspaceId };
+  const queryKey = ["labcontext", workspace.location, "research-map", workspace.workspaceId];
   const [view, setView] = useState<"focus" | "all" | "history">("focus");
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -120,7 +121,7 @@ export function ResearchMapPanel({ workspace }: { workspace: LabContextWorkspace
 
   const mapQuery = useQuery({
     queryKey,
-    queryFn: () => labContextClient.getResearchMap(workspace.workspaceId),
+    queryFn: () => labContextClient.getResearchMap(target),
     refetchInterval: (query) => query.state.data?.proposals.some((item) => item.status === "generating") ? 5_000 : false,
   });
   const bundle = mapQuery.data;
@@ -153,21 +154,21 @@ export function ResearchMapPanel({ workspace }: { workspace: LabContextWorkspace
   const invalidate = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey }),
-      queryClient.invalidateQueries({ queryKey: ["labcontext", "overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["labcontext", workspace.location, "overview"] }),
     ]);
   };
   const initializeMutation = useMutation({
-    mutationFn: () => labContextClient.initializeResearchMap(workspace.workspaceId),
+    mutationFn: () => labContextClient.initializeResearchMap(target),
     onSuccess: async () => { await invalidate(); toast.success("已根据项目事实初始化研究图，请检查节点内容"); },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const patchMutation = useMutation({
-    mutationFn: (patch: ResearchMapPatch) => labContextClient.applyResearchMapPatch(workspace.workspaceId, patch),
+    mutationFn: (patch: ResearchMapPatch) => labContextClient.applyResearchMapPatch(target, patch),
     onSuccess: async () => { setEditor(null); await invalidate(); toast.success("研究图已更新"); },
     onError: (error) => { toast.error(getAppErrorMessage(error)); void mapQuery.refetch(); },
   });
   const layoutMutation = useMutation({
-    mutationFn: () => labContextClient.saveResearchMapLayout(workspace.workspaceId, {
+    mutationFn: () => labContextClient.saveResearchMapLayout(target, {
       nodes: nodes.map((node) => ({ id: node.id, x: node.position.x, y: node.position.y, collapsed: false })),
       viewport: bundle?.layout.viewport || { x: 0, y: 0, zoom: 1 },
     }),
@@ -175,7 +176,7 @@ export function ResearchMapPanel({ workspace }: { workspace: LabContextWorkspace
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const reviewMutation = useMutation({
-    mutationFn: () => labContextClient.reviewResearchMap(workspace.workspaceId, true),
+    mutationFn: () => labContextClient.reviewResearchMap(target, true),
     onSuccess: async (result) => {
       await invalidate();
       toast.success(result.status === "queued" ? "已通知该工作区的最新 Codex 会话审视研究图" : "已启动独立 Codex 审阅");
@@ -183,7 +184,7 @@ export function ResearchMapPanel({ workspace }: { workspace: LabContextWorkspace
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const proposalMutation = useMutation({
-    mutationFn: ({ proposalId, action }: { proposalId: string; action: "apply" | "reject" }) => labContextClient.researchMapProposalAction(workspace.workspaceId, proposalId, action),
+    mutationFn: ({ proposalId, action }: { proposalId: string; action: "apply" | "reject" }) => labContextClient.researchMapProposalAction(target, proposalId, action),
     onSuccess: async (_, variables) => { setProposal(null); await invalidate(); toast.success(variables.action === "apply" ? "Codex 提案已应用" : "提案已拒绝，研究事实未改变"); },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });

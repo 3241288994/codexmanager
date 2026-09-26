@@ -18,14 +18,15 @@ Browser / Tauri
   └─ LabContext
       ├─ workspace registry and model-visible asset coverage
       ├─ tool policy, jobs, audit records, and research maps
-      └─ loopback-only LabContext admin adapter
+      ├─ service-side LabContext admin adapter
+      └─ desktop-only, loopback local LabContext adapter
 ```
 
 账户切换不会改写 LabContext 工作区。界面选中的工作区只影响控制台的本地导航；当模型工具请求显式携带 `workspace_id` 时，该值优先于默认工作区。
 
 ## 运行时
 
-`codexmanager-web` 提供静态 Next.js UI，并将受认证保护的 JSON-RPC 转发至 `codexmanager-service`。桌面端通过 Tauri 命令调用同一组服务能力；Web 端通过 `/api/runtime` 和 `/api/rpc` 使用等价的命令映射。
+`codexmanager-web` 提供静态 Next.js UI，并将受认证保护的 JSON-RPC 转发至 `codexmanager-service`。桌面端通过 Tauri 命令调用同一组服务能力；Web 端通过 `/api/runtime` 和 `/api/rpc` 使用等价的命令映射。读取当前电脑目录是明确的桌面专属能力，不进入 Web command map。
 
 服务拥有账号存储、OpenAI 设备授权和用量刷新、Codex profile 写入、本地会话索引与 LabContext 控制面适配。`codexmanager-start` 将 service 与 web 壳组合成单一进程组。
 
@@ -52,7 +53,7 @@ selected account
 
 ### LabContext
 
-LabContext 管理端默认只能使用 HTTP loopback 地址。容器部署时可使用 Docker 的 `host.docker.internal` 网关，并且必须将管理员 token 以只读文件挂载。任意远程主机、HTTPS URL 和模型可见管理接口都被拒绝。
+服务器侧 LabContext 管理端默认只能使用 HTTP loopback 地址。容器部署时可使用 Docker 的 `host.docker.internal` 网关，并且必须将管理员 token 以只读文件挂载。桌面侧本地适配更加严格：只接受 HTTP loopback、禁用代理，admin token 留在 Rust 进程中；本机目录必须由原生选择器授权，并拒绝文件系统根目录和整个用户主目录。任意远程主机、HTTPS URL 和模型可见管理接口都被拒绝。
 
 ## 信任边界
 

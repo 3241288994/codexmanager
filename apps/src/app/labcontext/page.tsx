@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity, AlertTriangle, Bot, CheckCircle2, FolderGit2,
-  BrainCircuit, MoreHorizontal, Pencil, Plus, RefreshCw, Server, Sparkles, Star, Trash2, Wrench,
+  BrainCircuit, HardDrive, Laptop, MoreHorizontal, Pencil, Plus, RefreshCw, Server, Sparkles, Star, Trash2, Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { labContextClient } from "@/lib/api/labcontext-client";
 import { getAppErrorMessage } from "@/lib/api/transport";
-import type { LabContextHealthState, LabContextWorkspace } from "@/types/labcontext";
+import type { LabContextHealthState, LabContextLocation, LabContextWorkspace } from "@/types/labcontext";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,7 @@ const HEALTH_VARIANTS: Record<LabContextHealthState, "default" | "secondary" | "
   healthy: "default", degraded: "secondary", unknown: "outline", down: "destructive",
 };
 const TOOL_LATENCY = { instant: "即时", indexed: "索引查询", codex: "Codex 分析" } as const;
+const LOCATION_LABELS: Record<LabContextLocation, string> = { server: "服务器", local: "本地电脑" };
 
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
@@ -54,7 +56,7 @@ function WorkspaceMenu({ workspace, onMap, onDefault, onRefresh, onGenerate, onD
       <DropdownMenuTrigger><Button variant="ghost" size="icon-sm" aria-label={`${workspace.name} 操作`}><MoreHorizontal /></Button></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-64">
         <DropdownMenuItem className="gap-2 whitespace-nowrap" onClick={onMap}><BrainCircuit className="size-4" />打开研究图</DropdownMenuItem>
-        <DropdownMenuItem className="gap-2 whitespace-nowrap" onClick={onDefault} disabled={workspace.isDefault}><Star className="size-4" />设为 ChatGPT 默认</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2 whitespace-nowrap" onClick={onDefault} disabled={workspace.isDefault}><Star className="size-4" />设为当前连接默认</DropdownMenuItem>
         <DropdownMenuItem className="gap-2 whitespace-nowrap" onClick={onRefresh}><RefreshCw className="size-4" />刷新索引与覆盖</DropdownMenuItem>
         <DropdownMenuItem className="gap-2 whitespace-nowrap" onClick={onGenerate}><Sparkles className="size-4" />用 Codex 重新生成概述</DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -64,21 +66,36 @@ function WorkspaceMenu({ workspace, onMap, onDefault, onRefresh, onGenerate, onD
   );
 }
 
+function LocationSwitcher({ location, localEnabled, onChange }: {
+  location: LabContextLocation;
+  localEnabled: boolean;
+  onChange: (location: LabContextLocation) => void;
+}) {
+  return <div className="flex rounded-lg border bg-muted/35 p-1" role="group" aria-label="工作区位置">
+    <Button size="sm" variant={location === "server" ? "secondary" : "ghost"} className="h-8" onClick={() => onChange("server")}><Server className="size-3.5" />服务器</Button>
+    <Button size="sm" variant={location === "local" ? "secondary" : "ghost"} className="h-8" disabled={!localEnabled} title={localEnabled ? "管理本机 LabContext 工作区" : "本地工作区只能在 CodexManager 桌面版中管理"} onClick={() => onChange("local")}><Laptop className="size-3.5" />本地电脑</Button>
+  </div>;
+}
+
 export default function LabContextPage() {
   const queryClient = useQueryClient();
+  const { isDesktopRuntime } = useRuntimeCapabilities();
+  const [location, setLocation] = useState<LabContextLocation>("server");
   const [selectedId, setSelectedId] = useState<string | null>(() => (
-    typeof window === "undefined" ? null : window.localStorage.getItem("labcontext-selected-workspace")
+    typeof window === "undefined" ? null : window.localStorage.getItem("labcontext-selected-workspace-server")
   ));
   const [workspaceDialog, setWorkspaceDialog] = useState(false);
-  const [overviewEditor, setOverviewEditor] = useState<{ workspaceId: string; name: string; overview: string } | null>(null);
+  const [overviewEditor, setOverviewEditor] = useState<{ location: LabContextLocation; workspaceId: string; name: string; overview: string } | null>(null);
   const [testResult, setTestResult] = useState<{ tool: string; input: unknown; result: unknown; responseBytes: number; elapsedMs: number; testedAt: string } | null>(null);
-  const [workspaceForm, setWorkspaceForm] = useState({ name: "", root: "" });
+  const [workspaceForm, setWorkspaceForm] = useState<{ name: string; root: string; location: LabContextLocation }>({ name: "", root: "", location: "server" });
   const [contextMenu, setContextMenu] = useState<{ workspace: LabContextWorkspace; x: number; y: number } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LabContextWorkspace | null>(null);
   const overviewQuery = useQuery({
-    queryKey: ["labcontext", "overview"],
-    queryFn: () => labContextClient.overview(),
+    queryKey: ["labcontext", location, "overview"],
+    queryFn: () => labContextClient.overview(location),
+    enabled: location === "server" || isDesktopRuntime,
     refetchInterval: 15_000,
+    retry: location === "server" ? 3 : false,
   });
 
   useEffect(() => {
@@ -88,24 +105,30 @@ export default function LabContextPage() {
     return () => { window.removeEventListener("click", close); window.removeEventListener("blur", close); };
   }, []);
 
-  const refresh = async () => queryClient.invalidateQueries({ queryKey: ["labcontext"] });
+  const refresh = async (targetLocation: LabContextLocation = location) => queryClient.invalidateQueries({ queryKey: ["labcontext", targetLocation] });
+  const switchLocation = (next: LabContextLocation) => {
+    if (next === "local" && !isDesktopRuntime) return;
+    setLocation(next);
+    setSelectedId(window.localStorage.getItem(`labcontext-selected-workspace-${next}`));
+    setContextMenu(null);
+  };
   const defaultMutation = useMutation({
     mutationFn: labContextClient.setDefaultWorkspace,
-    onSuccess: async () => { await refresh(); toast.success("默认工作区已更新；之后省略 workspace_id 的新调用将使用它，已开始的 ChatGPT 调用不会追溯变更"); },
+    onSuccess: async (_, target) => { await refresh(target.location); toast.success(`${LOCATION_LABELS[target.location]}连接的默认工作区已更新；之后省略 workspace_id 的新调用将使用它`); },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const refreshMutation = useMutation({
     mutationFn: labContextClient.refreshWorkspace,
-    onSuccess: async () => { await refresh(); toast.success("工作区索引与覆盖信息已刷新"); },
+    onSuccess: async (_, target) => { await refresh(target.location); toast.success("工作区索引与覆盖信息已刷新"); },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const policyMutation = useMutation({
-    mutationFn: ({ profile, disabledTools }: { profile: string; disabledTools: string[] }) => labContextClient.setToolPolicy(profile, disabledTools),
-    onSuccess: async () => { await refresh(); toast.success("工具策略已生效"); },
+    mutationFn: ({ location: targetLocation, profile, disabledTools }: { location: LabContextLocation; profile: string; disabledTools: string[] }) => labContextClient.setToolPolicy(targetLocation, profile, disabledTools),
+    onSuccess: async (_, variables) => { await refresh(variables.location); toast.success("工具策略已生效"); },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const testMutation = useMutation({
-    mutationFn: ({ tool, workspaceId }: { tool: string; workspaceId?: string }) => labContextClient.testTool(tool, workspaceId),
+    mutationFn: ({ tool, target }: { tool: string; target?: LabContextWorkspace }) => labContextClient.testTool(tool, target),
     onSuccess: (result) => setTestResult(result),
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
@@ -113,23 +136,25 @@ export default function LabContextPage() {
     mutationFn: () => labContextClient.upsertWorkspace(workspaceForm),
     onSuccess: async (result) => {
       setWorkspaceDialog(false);
-      setWorkspaceForm({ name: "", root: "" });
+      const targetLocation = workspaceForm.location;
+      setWorkspaceForm({ name: "", root: "", location: targetLocation });
+      setLocation(targetLocation);
       setSelectedId(result.workspaceId);
-      await refresh();
+      await refresh(targetLocation);
       toast.success("工作区已添加，Codex 正在结合项目文件和最近会话生成首版概述");
     },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const overviewMutation = useMutation({
-    mutationFn: ({ workspaceId, overview }: { workspaceId: string; overview: string }) => labContextClient.setWorkspaceOverview(workspaceId, overview),
-    onSuccess: async () => { setOverviewEditor(null); await refresh(); toast.success("工作区概述已保存，之后的模型概述会使用它"); },
+    mutationFn: ({ location: targetLocation, workspaceId, overview }: { location: LabContextLocation; workspaceId: string; overview: string }) => labContextClient.setWorkspaceOverview({ location: targetLocation, workspaceId }, overview),
+    onSuccess: async (_, variables) => { setOverviewEditor(null); await refresh(variables.location); toast.success("工作区概述已保存，之后的模型概述会使用它"); },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const generateOverviewMutation = useMutation({
-    mutationFn: ({ workspaceId, refresh: force }: { workspaceId: string; refresh: boolean }) => labContextClient.generateWorkspaceOverview(workspaceId, force),
-    onSuccess: async (result) => {
+    mutationFn: ({ target, refresh: force }: { target: LabContextWorkspace; refresh: boolean }) => labContextClient.generateWorkspaceOverview(target, force),
+    onSuccess: async (result, variables) => {
       setOverviewEditor(null);
-      await refresh();
+      await refresh(variables.target.location);
       if (result.status === "completed" || result.status === "ready") toast.success("Codex 概述已生成并写入 context.yaml");
       else if (result.status === "failed") toast.error(result.error || "Codex 概述生成失败");
       else toast.success("Codex 概述任务已启动；卡片会自动显示进度和结果");
@@ -138,17 +163,24 @@ export default function LabContextPage() {
   });
   const deleteMutation = useMutation({
     mutationFn: labContextClient.deleteWorkspace,
-    onSuccess: async (result) => {
+    onSuccess: async (result, target) => {
       setDeleteTarget(null);
       if (selectedId === result.workspaceId) setSelectedId(null);
-      await refresh();
+      await refresh(target.location);
       toast.success("已移除工作区注册；项目目录和文件均未删除");
     },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
   const workerMutation = useMutation({
-    mutationFn: ({ model, reasoningEffort }: { model: string; reasoningEffort: string }) => labContextClient.setWorkerConfig(model, reasoningEffort),
-    onSuccess: async () => { await refresh(); toast.success("Codex worker 配置已更新，将用于之后新建的分析任务"); },
+    mutationFn: ({ location: targetLocation, model, reasoningEffort }: { location: LabContextLocation; model: string; reasoningEffort: string }) => labContextClient.setWorkerConfig(targetLocation, model, reasoningEffort),
+    onSuccess: async (_, variables) => { await refresh(variables.location); toast.success("Codex worker 配置已更新，将用于之后新建的分析任务"); },
+    onError: (error) => toast.error(getAppErrorMessage(error)),
+  });
+  const pickDirectoryMutation = useMutation({
+    mutationFn: labContextClient.pickLocalWorkspaceDirectory,
+    onSuccess: (result) => {
+      if (!result.canceled && result.path) setWorkspaceForm((value) => ({ ...value, root: result.path || "" }));
+    },
     onError: (error) => toast.error(getAppErrorMessage(error)),
   });
 
@@ -162,23 +194,27 @@ export default function LabContextPage() {
   );
   const selectedWorkspaceId = selected?.workspaceId;
   useEffect(() => {
-    if (selectedWorkspaceId) window.localStorage.setItem("labcontext-selected-workspace", selectedWorkspaceId);
-  }, [selectedWorkspaceId]);
+    if (selectedWorkspaceId) window.localStorage.setItem(`labcontext-selected-workspace-${location}`, selectedWorkspaceId);
+  }, [location, selectedWorkspaceId]);
   const setToolEnabled = (name: string, enabled: boolean) => {
     if (!data) return;
     const disabledTools = data.toolPolicy.tools.filter((tool) => tool.name !== name ? !tool.enabled : !enabled).map((tool) => tool.name);
-    policyMutation.mutate({ profile: "custom", disabledTools });
+    policyMutation.mutate({ location, profile: "custom", disabledTools });
   };
   const openResearchMap = (workspaceId: string) => {
     setSelectedId(workspaceId);
     window.setTimeout(() => document.getElementById("research-map")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   };
+  const openWorkspaceDialog = () => {
+    setWorkspaceForm({ name: "", root: "", location });
+    setWorkspaceDialog(true);
+  };
 
   if (overviewQuery.isError) {
     return (
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-8">
-        <header><p className="text-sm font-medium text-primary">CodexManager</p><h1 className="mt-1 text-3xl font-semibold">科研工作区</h1></header>
-        <Card className="border-destructive/30"><CardContent className="flex items-start gap-3 p-5"><AlertTriangle className="mt-0.5 size-5 text-destructive" /><div><p className="font-medium">无法连接 LabContext 管理接口</p><p className="mt-1 text-sm text-muted-foreground">{getAppErrorMessage(overviewQuery.error)}</p><Button className="mt-4" variant="outline" onClick={() => overviewQuery.refetch()}><RefreshCw />重试</Button></div></CardContent></Card>
+        <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-medium text-primary">CodexManager</p><h1 className="mt-1 text-3xl font-semibold">科研工作区</h1></div><LocationSwitcher location={location} localEnabled={isDesktopRuntime} onChange={switchLocation} /></header>
+        <Card className="border-destructive/30"><CardContent className="flex items-start gap-3 p-5"><AlertTriangle className="mt-0.5 size-5 text-destructive" /><div><p className="font-medium">无法连接{LOCATION_LABELS[location]}的 LabContext 管理接口</p><p className="mt-1 text-sm text-muted-foreground">{getAppErrorMessage(overviewQuery.error)}</p>{location === "local" ? <p className="mt-2 text-xs text-muted-foreground">请确认本机 LabContext 已启动，且管理 token 位于默认路径或已通过本地环境变量配置。</p> : null}<Button className="mt-4" variant="outline" onClick={() => overviewQuery.refetch()}><RefreshCw />重试</Button></div></CardContent></Card>
       </main>
     );
   }
@@ -186,21 +222,21 @@ export default function LabContextPage() {
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div><p className="text-sm font-medium text-primary">CodexManager</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">科研工作区</h1><p className="mt-2 text-sm text-muted-foreground">管理 ChatGPT 可查询的科研事实库、工具策略和分析任务。</p></div>
-        <div className="flex gap-2"><Button variant="outline" onClick={() => overviewQuery.refetch()} disabled={overviewQuery.isFetching}><RefreshCw className={overviewQuery.isFetching ? "animate-spin" : ""} />刷新状态</Button><Button onClick={() => setWorkspaceDialog(true)}><Plus />添加工作区</Button></div>
+        <div><p className="text-sm font-medium text-primary">CodexManager</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">科研工作区</h1><p className="mt-2 text-sm text-muted-foreground">统一管理服务器与本机上可供 ChatGPT 查询的科研项目。</p></div>
+        <div className="flex flex-wrap items-center gap-2"><LocationSwitcher location={location} localEnabled={isDesktopRuntime} onChange={switchLocation} /><Button variant="outline" onClick={() => overviewQuery.refetch()} disabled={overviewQuery.isFetching}><RefreshCw className={overviewQuery.isFetching ? "animate-spin" : ""} />刷新状态</Button><Button onClick={openWorkspaceDialog}><Plus />添加工作区</Button></div>
       </header>
 
       {data ? (
         <>
           <Card className="border-primary/20">
-            <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle className="flex items-center gap-2 text-base"><Server className="size-4" />服务链状态</CardTitle><CardDescription>只展示能够验证的环节；Mac tunnel 无 heartbeat 时不会伪装成健康。</CardDescription></div><Badge variant={HEALTH_VARIANTS[data.health.overall]}>{HEALTH_LABELS[data.health.overall]}</Badge></div></CardHeader>
+            <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle className="flex items-center gap-2 text-base">{location === "local" ? <Laptop className="size-4" /> : <Server className="size-4" />}{LOCATION_LABELS[location]}服务链状态</CardTitle><CardDescription>只展示能够验证的环节；Tunnel 无 heartbeat 时不会伪装成健康。</CardDescription></div><Badge variant={HEALTH_VARIANTS[data.health.overall]}>{HEALTH_LABELS[data.health.overall]}</Badge></div></CardHeader>
             <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {data.health.checks.map((check) => <div key={check.id} className="rounded-lg border bg-background/50 p-3"><div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">{check.label}</p><span className={`size-2 rounded-full ${check.status === "healthy" ? "bg-emerald-500" : check.status === "down" ? "bg-red-500" : "bg-amber-500"}`} /></div><p className="mt-2 line-clamp-2 text-xs text-muted-foreground" title={check.detail}>{check.detail}</p></div>)}
             </CardContent>
           </Card>
 
           <section className="space-y-3">
-            <div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold">科研工作区</h2><p className="text-xs text-muted-foreground">每张卡片是一项科研项目；悬停查看详情，右键可设为 ChatGPT 默认工作区。</p></div><span className="text-sm text-muted-foreground">{data.workspaces.length} 个</span></div>
+            <div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold">{LOCATION_LABELS[location]}工作区</h2><p className="text-xs text-muted-foreground">每张卡片是一项科研项目；默认工作区仅作用于当前连接。</p></div><span className="text-sm text-muted-foreground">{data.workspaces.length} 个</span></div>
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
               {data.workspaces.map((workspace, workspaceIndex) => (
                 <Card
@@ -210,7 +246,7 @@ export default function LabContextPage() {
                   onContextMenu={(event) => { event.preventDefault(); setContextMenu({ workspace, x: event.clientX, y: event.clientY }); }}
                 >
                   <CardContent className="grid min-h-64 min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-hidden p-5">
-                    <div className="peer/workspace-header flex items-start justify-between gap-3"><div className="flex min-w-0 gap-3"><div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><FolderGit2 className="size-5" /></div><div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-semibold">{workspace.name}</p>{workspace.isDefault ? <Star className="size-4 fill-amber-400 text-amber-500" /> : null}</div><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{workspace.workspaceId} · {workspace.root}</p></div></div><WorkspaceMenu workspace={workspace} onMap={() => openResearchMap(workspace.workspaceId)} onDefault={() => defaultMutation.mutate(workspace.workspaceId)} onRefresh={() => refreshMutation.mutate(workspace.workspaceId)} onGenerate={() => generateOverviewMutation.mutate({ workspaceId: workspace.workspaceId, refresh: true })} onDelete={() => setDeleteTarget(workspace)} /></div>
+                    <div className="peer/workspace-header flex items-start justify-between gap-3"><div className="flex min-w-0 gap-3"><div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">{workspace.location === "local" ? <HardDrive className="size-5" /> : <FolderGit2 className="size-5" />}</div><div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-semibold">{workspace.name}</p><Badge variant="outline" className="shrink-0">{LOCATION_LABELS[workspace.location]}</Badge>{workspace.isDefault ? <Star className="size-4 fill-amber-400 text-amber-500" /> : null}</div><p className="mt-1 truncate font-mono text-xs text-muted-foreground">{workspace.workspaceId} · {workspace.root}</p></div></div><WorkspaceMenu workspace={workspace} onMap={() => openResearchMap(workspace.workspaceId)} onDefault={() => defaultMutation.mutate(workspace)} onRefresh={() => refreshMutation.mutate(workspace)} onGenerate={() => generateOverviewMutation.mutate({ target: workspace, refresh: true })} onDelete={() => setDeleteTarget(workspace)} /></div>
                     <div className="min-w-0 overflow-hidden">
                       <Tooltip>
                         <TooltipTrigger
@@ -234,7 +270,7 @@ export default function LabContextPage() {
                     </div>
                     <div className="flex flex-wrap gap-1.5">{workspace.readableAssets.filter((asset) => asset.fileCount > 0).map((asset) => <Badge key={asset.kind} variant="secondary">{asset.label} {asset.fileCount}</Badge>)}</div>
                     <button className="min-w-0 rounded-lg border bg-muted/25 px-3 py-2 text-left transition-colors hover:bg-muted/50" onClick={(event) => { event.stopPropagation(); openResearchMap(workspace.workspaceId); }}><div className="flex items-center justify-between gap-2"><span className="flex items-center gap-1.5 text-xs font-medium"><BrainCircuit className="size-3.5 text-primary" />研究图</span><span className="text-[10px] text-muted-foreground">{workspace.researchMap.status === "ready" ? `${workspace.researchMap.counts.nodes} 节点` : "待初始化"}</span></div><p className="mt-1 truncate text-[11px] text-muted-foreground">{workspace.researchMap.currentTarget?.title || workspace.researchMap.coreIdea?.title || "建立项目的目标、分支与证据关系"}</p>{workspace.researchMap.pendingProposals ? <Badge variant="secondary" className="mt-1.5">{workspace.researchMap.pendingProposals} 个待审提案</Badge> : null}</button>
-                    <div className="mt-auto flex min-w-0 items-center justify-between gap-2 border-t pt-3"><p className="min-w-0 truncate text-xs text-muted-foreground">{workspace.git.dirty ? `${workspace.git.changedPathCount} 项未提交变更` : "Git 工作树干净"}</p><Button className="shrink-0" size="sm" variant="ghost" onClick={(event) => { event.stopPropagation(); setOverviewEditor({ workspaceId: workspace.workspaceId, name: workspace.name, overview: workspace.description }); }}><Pencil />编辑概述</Button></div>
+                    <div className="mt-auto flex min-w-0 items-center justify-between gap-2 border-t pt-3"><p className="min-w-0 truncate text-xs text-muted-foreground">{workspace.git.dirty ? `${workspace.git.changedPathCount} 项未提交变更` : "Git 工作树干净"}</p><Button className="shrink-0" size="sm" variant="ghost" onClick={(event) => { event.stopPropagation(); setOverviewEditor({ location: workspace.location, workspaceId: workspace.workspaceId, name: workspace.name, overview: workspace.description }); }}><Pencil />编辑概述</Button></div>
                   </CardContent>
                   <div className="pointer-events-none absolute inset-x-3 top-[calc(100%-10px)] z-30 hidden rounded-lg border bg-popover p-4 text-popover-foreground shadow-xl peer-focus-within/workspace-header:block peer-hover/workspace-header:block">
                     <p className="font-medium">模型可以了解什么</p>
@@ -249,8 +285,8 @@ export default function LabContextPage() {
           {selected ? (
             <>
             <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-              <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="text-base">当前查看：{selected.name}</CardTitle><CardDescription>测试可确认 ChatGPT 实际能读到的项目背景；重新扫描会发现新增实验摘要。</CardDescription></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => testMutation.mutate({ tool: "workspace_overview", workspaceId: selected.workspaceId })} disabled={testMutation.isPending}><CheckCircle2 />测试 ChatGPT 所见内容</Button><Button variant="outline" size="sm" onClick={() => refreshMutation.mutate(selected.workspaceId)} disabled={refreshMutation.isPending}><RefreshCw className={refreshMutation.isPending ? "animate-spin" : ""} />重新扫描项目</Button></div></div></CardHeader></Card>
-              <Card><CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Bot className="size-4" />Codex analysis worker</CardTitle><CardDescription>仅影响之后新建的深度分析任务；已运行任务不会中途换模型。</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-3"><div className="grid gap-1.5"><Label htmlFor="worker-model">模型</Label><select id="worker-model" className="h-9 rounded-lg border bg-background px-3 text-sm" value={data.workerConfig.model} disabled={workerMutation.isPending} onChange={(event) => { const model = event.target.value; const efforts = data.workerConfig.availableEfforts[model] || ["medium"]; const effort = efforts.includes(data.workerConfig.reasoningEffort) ? data.workerConfig.reasoningEffort : "medium"; workerMutation.mutate({ model, reasoningEffort: effort }); }}>{data.workerConfig.availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select></div><div className="grid gap-1.5"><Label htmlFor="worker-effort">思考强度</Label><select id="worker-effort" className="h-9 rounded-lg border bg-background px-3 text-sm" value={data.workerConfig.reasoningEffort} disabled={workerMutation.isPending} onChange={(event) => workerMutation.mutate({ model: data.workerConfig.model, reasoningEffort: event.target.value })}>{(data.workerConfig.availableEfforts[data.workerConfig.model] || []).map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></div></CardContent></Card>
+              <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="text-base">当前查看：{selected.name}</CardTitle><CardDescription>测试可确认当前 {LOCATION_LABELS[selected.location]} 连接实际向 ChatGPT 返回的项目背景。</CardDescription></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => testMutation.mutate({ tool: "workspace_overview", target: selected })} disabled={testMutation.isPending}><CheckCircle2 />测试 ChatGPT 所见内容</Button><Button variant="outline" size="sm" onClick={() => refreshMutation.mutate(selected)} disabled={refreshMutation.isPending}><RefreshCw className={refreshMutation.isPending ? "animate-spin" : ""} />重新扫描项目</Button></div></div></CardHeader></Card>
+              <Card><CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Bot className="size-4" />Codex analysis worker</CardTitle><CardDescription>仅影响当前 {LOCATION_LABELS[location]} 连接之后新建的深度分析任务。</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-3"><div className="grid gap-1.5"><Label htmlFor="worker-model">模型</Label><select id="worker-model" className="h-9 rounded-lg border bg-background px-3 text-sm" value={data.workerConfig.model} disabled={workerMutation.isPending} onChange={(event) => { const model = event.target.value; const efforts = data.workerConfig.availableEfforts[model] || ["medium"]; const effort = efforts.includes(data.workerConfig.reasoningEffort) ? data.workerConfig.reasoningEffort : "medium"; workerMutation.mutate({ location, model, reasoningEffort: effort }); }}>{data.workerConfig.availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select></div><div className="grid gap-1.5"><Label htmlFor="worker-effort">思考强度</Label><select id="worker-effort" className="h-9 rounded-lg border bg-background px-3 text-sm" value={data.workerConfig.reasoningEffort} disabled={workerMutation.isPending} onChange={(event) => workerMutation.mutate({ location, model: data.workerConfig.model, reasoningEffort: event.target.value })}>{(data.workerConfig.availableEfforts[data.workerConfig.model] || []).map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></div></CardContent></Card>
             </section>
             <ResearchMapPanel workspace={selected} />
             </>
@@ -258,7 +294,7 @@ export default function LabContextPage() {
 
           <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
             <Card>
-              <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="flex items-center gap-2 text-base"><Wrench className="size-4" />模型可见工具</CardTitle><CardDescription>工具名与 schema 保持稳定；开关由服务器策略真正执行。</CardDescription></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => policyMutation.mutate({ profile: "fast", disabledTools: ["request_analysis"] })}>快速只读</Button><Button size="sm" variant="outline" onClick={() => policyMutation.mutate({ profile: "research", disabledTools: [] })}>科研讨论</Button></div></div></CardHeader>
+              <CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="flex items-center gap-2 text-base"><Wrench className="size-4" />模型可见工具</CardTitle><CardDescription>工具名与 schema 保持稳定；开关由当前 {LOCATION_LABELS[location]} 连接的策略执行。</CardDescription></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => policyMutation.mutate({ location, profile: "fast", disabledTools: ["request_analysis"] })}>快速只读</Button><Button size="sm" variant="outline" onClick={() => policyMutation.mutate({ location, profile: "research", disabledTools: [] })}>科研讨论</Button></div></div></CardHeader>
               <CardContent className="grid gap-2 md:grid-cols-2">{data.toolPolicy.tools.map((tool) => <div key={tool.name} className="flex items-start justify-between gap-3 rounded-lg border p-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><code className="text-xs font-semibold">{tool.name}</code><Badge variant="outline">{TOOL_LATENCY[tool.latencyClass]}</Badge>{tool.computeCost === "codex_tokens" ? <Badge variant="secondary">消耗 Codex 额度</Badge> : null}</div><p className="mt-2 text-xs text-muted-foreground">{tool.description}</p>{tool.dependencies.length ? <p className="mt-1 text-[11px] text-muted-foreground">依赖：{tool.dependencies.join(", ")}</p> : null}</div><Switch checked={tool.enabled} disabled={["list_workspaces", "get_job"].includes(tool.name) || policyMutation.isPending} onCheckedChange={(checked) => setToolEnabled(tool.name, checked)} aria-label={`${tool.name} 启用状态`} /></div>)}</CardContent>
             </Card>
 
@@ -275,12 +311,16 @@ export default function LabContextPage() {
         </>
       ) : <Card><CardContent className="p-8 text-sm text-muted-foreground">正在读取 LabContext 控制面…</CardContent></Card>}
 
-      {contextMenu ? <div className="fixed z-50 min-w-64 rounded-lg border bg-popover p-1 text-sm shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted" onClick={() => { openResearchMap(contextMenu.workspace.workspaceId); setContextMenu(null); }}><BrainCircuit className="size-4" />打开研究图</button><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted disabled:opacity-50" disabled={contextMenu.workspace.isDefault} onClick={() => { defaultMutation.mutate(contextMenu.workspace.workspaceId); setContextMenu(null); }}><Star className="size-4" />设为 ChatGPT 默认</button><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted" onClick={() => { refreshMutation.mutate(contextMenu.workspace.workspaceId); setContextMenu(null); }}><RefreshCw className="size-4" />刷新索引与覆盖</button><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted" onClick={() => { generateOverviewMutation.mutate({ workspaceId: contextMenu.workspace.workspaceId, refresh: true }); setContextMenu(null); }}><Sparkles className="size-4" />用 Codex 重新生成概述</button><div className="my-1 border-t" /><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left text-destructive hover:bg-destructive/10 disabled:opacity-50" disabled={contextMenu.workspace.isDefault} onClick={() => { setDeleteTarget(contextMenu.workspace); setContextMenu(null); }}><Trash2 className="size-4" />删除工作区注册</button></div> : null}
+      {contextMenu ? <div className="fixed z-50 min-w-64 rounded-lg border bg-popover p-1 text-sm shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted" onClick={() => { openResearchMap(contextMenu.workspace.workspaceId); setContextMenu(null); }}><BrainCircuit className="size-4" />打开研究图</button><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted disabled:opacity-50" disabled={contextMenu.workspace.isDefault} onClick={() => { defaultMutation.mutate(contextMenu.workspace); setContextMenu(null); }}><Star className="size-4" />设为当前连接默认</button><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted" onClick={() => { refreshMutation.mutate(contextMenu.workspace); setContextMenu(null); }}><RefreshCw className="size-4" />刷新索引与覆盖</button><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left hover:bg-muted" onClick={() => { generateOverviewMutation.mutate({ target: contextMenu.workspace, refresh: true }); setContextMenu(null); }}><Sparkles className="size-4" />用 Codex 重新生成概述</button><div className="my-1 border-t" /><button className="flex w-full items-center gap-2 whitespace-nowrap rounded px-3 py-2 text-left text-destructive hover:bg-destructive/10 disabled:opacity-50" disabled={contextMenu.workspace.isDefault} onClick={() => { setDeleteTarget(contextMenu.workspace); setContextMenu(null); }}><Trash2 className="size-4" />删除工作区注册</button></div> : null}
 
       <Dialog open={workspaceDialog} onOpenChange={setWorkspaceDialog}>
         <DialogContent>
-          <DialogHeader><DialogTitle>添加科研工作区</DialogTitle><DialogDescription>只需要名称和服务器目录。LabContext 会自动生成 ID、识别项目内容，并创建可编辑的 `.labcontext/context.yaml` 项目概述。</DialogDescription></DialogHeader>
-          <div className="grid gap-4 py-2"><div className="grid gap-2"><Label htmlFor="workspace-name">工作区名称</Label><Input id="workspace-name" value={workspaceForm.name} onChange={(event) => setWorkspaceForm((value) => ({ ...value, name: event.target.value }))} placeholder="Example research project" /></div><div className="grid gap-2"><Label htmlFor="workspace-root">服务器绝对路径</Label><Input id="workspace-root" value={workspaceForm.root} onChange={(event) => setWorkspaceForm((value) => ({ ...value, root: event.target.value }))} placeholder="/srv/research/project" /></div></div>
+          <DialogHeader><DialogTitle>添加科研工作区</DialogTitle><DialogDescription>选择项目位于服务器还是当前电脑。LabContext 会识别项目内容，并创建可编辑的 `.labcontext/context.yaml` 概述。</DialogDescription></DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2"><Label>工作区位置</Label><LocationSwitcher location={workspaceForm.location} localEnabled={isDesktopRuntime} onChange={(next) => setWorkspaceForm((value) => ({ ...value, location: next, root: "" }))} />{!isDesktopRuntime ? <p className="text-xs text-muted-foreground">Web 版不能读取浏览器所在电脑的目录；请使用桌面版添加本地工作区。</p> : null}</div>
+            <div className="grid gap-2"><Label htmlFor="workspace-name">工作区名称</Label><Input id="workspace-name" value={workspaceForm.name} onChange={(event) => setWorkspaceForm((value) => ({ ...value, name: event.target.value }))} placeholder="Example research project" /></div>
+            <div className="grid gap-2"><Label htmlFor="workspace-root">{workspaceForm.location === "local" ? "本地项目目录" : "服务器绝对路径"}</Label><div className="flex gap-2"><Input id="workspace-root" readOnly={workspaceForm.location === "local"} value={workspaceForm.root} onChange={(event) => setWorkspaceForm((value) => ({ ...value, root: event.target.value }))} placeholder={workspaceForm.location === "local" ? "使用右侧按钮选择文件夹" : "/srv/research/project"} />{workspaceForm.location === "local" ? <Button type="button" variant="outline" disabled={pickDirectoryMutation.isPending} onClick={() => pickDirectoryMutation.mutate()}><HardDrive />{pickDirectoryMutation.isPending ? "选择中…" : "选择文件夹"}</Button> : null}</div>{workspaceForm.location === "local" ? <p className="text-xs text-muted-foreground">目录会由系统选择器显式授权；不会把整个磁盘或用户目录开放给模型。</p> : null}</div>
+          </div>
           <DialogFooter><Button variant="outline" onClick={() => setWorkspaceDialog(false)}>取消</Button><Button disabled={workspaceMutation.isPending || !workspaceForm.name.trim() || !workspaceForm.root.trim()} onClick={() => workspaceMutation.mutate()}>{workspaceMutation.isPending ? "正在识别项目…" : "添加并自动配置"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
@@ -289,14 +329,14 @@ export default function LabContextPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>编辑工作区概述</DialogTitle><DialogDescription>这段内容会写入工作区的 context.yaml，并作为 ChatGPT 理解项目的优先背景。建议写清研究目标、当前阶段和主要对象。</DialogDescription></DialogHeader>
           {overviewEditor ? <div className="grid gap-2 py-2"><Label htmlFor="workspace-overview">{overviewEditor.name}</Label><Textarea id="workspace-overview" className="min-h-36" maxLength={1200} value={overviewEditor.overview} onChange={(event) => setOverviewEditor((value) => value ? { ...value, overview: event.target.value } : value)} /><p className="text-right text-xs text-muted-foreground">{overviewEditor.overview.length}/1200</p></div> : null}
-          <DialogFooter className="sm:justify-between"><Button variant="outline" disabled={generateOverviewMutation.isPending} onClick={() => overviewEditor && generateOverviewMutation.mutate({ workspaceId: overviewEditor.workspaceId, refresh: true })}><Sparkles />{generateOverviewMutation.isPending ? "正在启动…" : "让 Codex 重新生成"}</Button><div className="flex gap-2"><Button variant="outline" onClick={() => setOverviewEditor(null)}>取消</Button><Button disabled={!overviewEditor?.overview.trim() || overviewMutation.isPending} onClick={() => overviewEditor && overviewMutation.mutate({ workspaceId: overviewEditor.workspaceId, overview: overviewEditor.overview })}>{overviewMutation.isPending ? "正在保存…" : "保存概述"}</Button></div></DialogFooter>
+          <DialogFooter className="sm:justify-between"><Button variant="outline" disabled={generateOverviewMutation.isPending} onClick={() => { const workspace = data?.workspaces.find((item) => item.workspaceId === overviewEditor?.workspaceId); if (workspace) generateOverviewMutation.mutate({ target: workspace, refresh: true }); }}><Sparkles />{generateOverviewMutation.isPending ? "正在启动…" : "让 Codex 重新生成"}</Button><div className="flex gap-2"><Button variant="outline" onClick={() => setOverviewEditor(null)}>取消</Button><Button disabled={!overviewEditor?.overview.trim() || overviewMutation.isPending} onClick={() => overviewEditor && overviewMutation.mutate(overviewEditor)}>{overviewMutation.isPending ? "正在保存…" : "保存概述"}</Button></div></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>删除工作区注册？</DialogTitle><DialogDescription>将从 LabContext 中移除“{deleteTarget?.name}”。服务器上的项目目录、代码、实验结果和 context.yaml 都不会被删除，之后仍可用相同路径重新添加。</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button><Button variant="destructive" disabled={!deleteTarget || deleteTarget.isDefault || deleteMutation.isPending} onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.workspaceId)}><Trash2 />{deleteMutation.isPending ? "正在移除…" : "仅移除注册"}</Button></DialogFooter>
+          <DialogHeader><DialogTitle>删除工作区注册？</DialogTitle><DialogDescription>将从{deleteTarget ? LOCATION_LABELS[deleteTarget.location] : "当前连接"}的 LabContext 中移除“{deleteTarget?.name}”。项目目录、代码、实验结果和 context.yaml 都不会被删除。</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button><Button variant="destructive" disabled={!deleteTarget || deleteTarget.isDefault || deleteMutation.isPending} onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}><Trash2 />{deleteMutation.isPending ? "正在移除…" : "仅移除注册"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
