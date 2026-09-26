@@ -718,6 +718,19 @@ class RouterHandler(BaseHTTPRequestHandler):
         except RouterError as exc:
             self._json(HTTPStatus.FORBIDDEN, {"error": str(exc)})
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        try:
+            self._require_allowed_origin()
+            if self.path != "/mcp":
+                self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            # Upstream sessions are pooled per provider rather than owned by a
+            # downstream client, so terminating a downstream session is a no-op.
+            self._headers(HTTPStatus.NO_CONTENT)
+            self.end_headers()
+        except RouterError as exc:
+            self._json(HTTPStatus.FORBIDDEN, {"error": str(exc)})
+
     def do_POST(self) -> None:  # noqa: N802
         try:
             self._require_allowed_origin()

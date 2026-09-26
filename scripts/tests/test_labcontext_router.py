@@ -13,7 +13,13 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
 from labcontext import ssh_command  # noqa: E402
-from labcontext_router import LabContextRouter, ProviderConfig, RouterConfig, RouterError  # noqa: E402
+from labcontext_router import (  # noqa: E402
+    LabContextRouter,
+    ProviderConfig,
+    RouterConfig,
+    RouterError,
+    RouterServer,
+)
 
 
 class FakeLabContextHandler(BaseHTTPRequestHandler):
@@ -153,6 +159,22 @@ class RouterTest(unittest.TestCase):
         statuses = self.router.provider_status(probe=True)
         self.assertEqual([item["status"] for item in statuses], ["ready", "ready"])
         self.assertEqual([item["adminStatus"] for item in statuses], ["ready", "ready"])
+
+    def test_downstream_session_delete_is_accepted(self) -> None:
+        server = RouterServer(("127.0.0.1", 0), self.router)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            from urllib.request import Request, urlopen
+
+            request = Request(
+                f"http://127.0.0.1:{server.server_port}/mcp",
+                method="DELETE",
+            )
+            with urlopen(request, timeout=2) as response:
+                self.assertEqual(response.status, 204)
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 class LauncherTest(unittest.TestCase):
