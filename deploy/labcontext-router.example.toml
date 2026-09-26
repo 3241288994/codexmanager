@@ -1,0 +1,23 @@
+[router]
+listen_addr = "127.0.0.1:1460"
+cors_origins = ["http://127.0.0.1:48761", "http://localhost:48761"]
+
+# Keep only the providers you want. In hybrid mode, run the local LabContext on
+# a different loopback port from the SSH-forwarded server LabContext.
+[[providers]]
+id = "local"
+label = "This computer"
+mcp_url = "http://127.0.0.1:1456/mcp"
+admin_url = "http://127.0.0.1:1456/admin"
+admin_token_file = "~/.local/state/labcontext-local/admin.token"
+enabled = true
+timeout_seconds = 20
+
+[[providers]]
+id = "server"
+label = "Research server"
+mcp_url = "http://127.0.0.1:1455/mcp"
+admin_url = "http://127.0.0.1:1455/admin"
+admin_token_file = "~/.local/state/labcontext/admin.token"
+enabled = true
+timeout_seconds = 20

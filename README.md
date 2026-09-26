@@ -88,9 +88,11 @@ export LABCTX_ADMIN_TOKEN_FILE="$HOME/.local/state/labcontext/admin.token"
 
 Docker 部署需要把管理员 token 以只读方式挂入容器。请按 [服务器部署说明](docs/open-source/01-server-deployment.md) 使用 `deploy/docker-compose.labcontext.example.yml` 覆盖文件；它仅允许 `host.docker.internal` 这一 Docker 宿主机网关，不接受任意远程管理地址。
 
-桌面版还可直接管理当前电脑上的另一套 LabContext，并通过原生系统选择器添加本机目录。该连接
-使用独立的 `CODEXMANAGER_LOCAL_LABCONTEXT_*` 环境变量且严格限制为回环地址；配置和 ChatGPT
-连接方式见[本地科研工作区说明](docs/local-workspaces.md)。
+如需让同一个 Web 控制台和同一条 ChatGPT MCP 连接同时使用本机与服务器项目，可安装可选的
+零依赖 LabContext Router。它支持 `local`、`server`、`hybrid` 三种解耦模式，日常只需运行
+`labcontext`；工具返回的 `workspace_ref` 会明确标记来源，避免同名项目误路由。桌面版仍可使用
+原生目录选择器。快速配置见[统一 LabContext Router](docs/labcontext-router.md)，目录权限与两种
+UI 的差异见[本地科研工作区说明](docs/local-workspaces.md)。
 
 ## 本地开发
 
@@ -125,6 +127,7 @@ crates/service/          本地服务、账户、会话与 LabContext 适配
 crates/web/              Web 运行壳和受保护的 RPC 代理
 crates/start/            all-in-one 启动器
 deploy/                  安全 Compose 与可选 LabContext 覆盖
+scripts/                 构建、发布、探测与可选 LabContext Router
 plugins/                 不含连接 ID 的 Codex 插件模板
 docs/open-source/        部署、Tunnel 与发布说明
 cm-skills/               可选的 CodexManager Images API 本地技能

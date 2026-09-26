@@ -9,9 +9,10 @@ async function readSource(relativePath) {
   return fs.readFile(path.join(appsRoot, relativePath), "utf8");
 }
 
-test("本地科研工作区只通过桌面壳暴露", async () => {
-  const [client, page, hook, webCommands, registry] = await Promise.all([
+test("本地科研工作区通过桌面壳或可选回环 Router 暴露", async () => {
+  const [client, routerClient, page, hook, webCommands, registry] = await Promise.all([
     readSource("src/lib/api/labcontext-client.ts"),
+    readSource("src/lib/api/labcontext-router-client.ts"),
     readSource("src/app/labcontext/page.tsx"),
     readSource("src/hooks/useLabContextWorkspace.ts"),
     readSource("src/lib/api/transport-web-commands.ts"),
@@ -28,10 +29,15 @@ test("本地科研工作区只通过桌面壳暴露", async () => {
     assert.doesNotMatch(webCommands, new RegExp(command));
   }
 
-  assert.match(page, /useLabContextWorkspace\(isDesktopRuntime\)/);
+  assert.match(client, /isTauriRuntime\(\)[\s\S]*?callLocalLabContextRouter/);
+  assert.match(routerClient, /http:\/\/127\.0\.0\.1:1460/);
+  assert.match(routerClient, /fetchWithRetry/);
+  assert.match(page, /useLabContextRouter\(!isDesktopRuntime\)/);
+  assert.match(page, /useLabContextWorkspace\(localEnabled\)/);
   assert.match(hook, /labContextClient\.pickLocalWorkspaceDirectory/);
-  assert.match(page, /localEnabled=\{isDesktopRuntime\}/);
-  assert.match(page, /Web (?:版|模式)不能读取(?:浏览器所在)?电脑的目录/);
+  assert.match(page, /localEnabled=\{localEnabled\}/);
+  assert.match(page, /启动本机 labcontext 后/);
+  assert.match(page, /readOnly=\{workspaceForm\.location === "local" && isDesktopRuntime\}/);
 });
 
 test("科研工作区在隐藏页面暂停轮询并优化目录选择", async () => {

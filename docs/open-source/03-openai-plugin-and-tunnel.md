@@ -2,12 +2,13 @@
 
 ## 当前仓库的边界
 
-CodexManager 提供 Web 管理、内部 RPC 和可选 LabContext 管理适配，但**没有实现 MCP
-Streamable HTTP `/mcp` endpoint，也不暴露 OpenAI 兼容 `/v1` 网关**。因此：
+CodexManager service 提供 Web 管理、内部 RPC 和可选 LabContext 管理适配，但**它自身不实现
+MCP endpoint，也不暴露 OpenAI 兼容 `/v1` 网关**。仓库另带一个可选、独立运行的
+LabContext Router，它在 `127.0.0.1:1460/mcp` 聚合已经存在的 LabContext Provider。因此：
 
 - 不要把 `/api/rpc`、`/rpc`、LabContext 管理端或个人 SSH 端口转发填入 ChatGPT 的 MCP 地址。
-- Secure MCP Tunnel 只能把已有的 MCP server 安全连接到 OpenAI；它不会把普通 REST、
-  管理 RPC 转换成 MCP。
+- Secure MCP Tunnel 只能把已有的 MCP server（包括可选 Router）安全连接到 OpenAI；它不会把
+  普通 REST 或 CodexManager 管理 RPC 转换成 MCP。
 - `plugins/codexmanager-connector` 是一个可公开分发的**技能型插件模板**。它不含 MCP
   连接、Tunnel ID、运行时 API Key 或用户专属 `.app.json`。
 
@@ -17,8 +18,9 @@ Streamable HTTP `/mcp` endpoint，也不暴露 OpenAI 兼容 `/v1` 网关**。�
 
 ## 私有开发：为独立 MCP 服务建立 Tunnel
 
-只有在你已经另外实现并验证了 MCP 服务时，才使用本节。该服务应只暴露经过筛选、低权限、
-有输入 schema 的工具；账号切换、删除、密钥读取、凭据导入等管理动作不应成为默认模型工具。
+只有在你已经启动并验证了 MCP 服务时，才使用本节。它可以是单独部署的服务，也可以是仓库的
+可选 LabContext Router。该服务应只暴露经过筛选、低权限、有输入 schema 的工具；账号切换、
+删除、密钥读取、凭据导入等管理动作不应成为默认模型工具。
 
 1. 先在同一私有网络中启动 MCP 服务，并用 MCP Inspector 验证工具列表、参数、鉴权、错误
    和确认行为。HTTP 服务通常使用 `/mcp`；也可以是 stdio 服务。
@@ -53,16 +55,16 @@ Platform organization，它不一定会出现在 Enterprise/Edu 工作区。完�
 ## 与 LabContext 的关系
 
 `LABCONTEXT_ADMIN_URL` 仅供 CodexManager 的管理适配使用。无论它指向同机 loopback、
-Docker 宿主机网关还是私有转发，它都不是 MCP 地址。若要让 ChatGPT 使用科研工具，应新建
-一个 MCP 适配层，仅向模型公开经授权的只读或明确确认的工具，并由该适配层调用受限的
-CodexManager/LabContext 能力。
+Docker 宿主机网关还是私有转发，它都不是 MCP 地址。若要让 ChatGPT 使用科研工具，可让
+Tunnel 直接连接单个 LabContext `/mcp`，也可使用可选 Router 聚合多个 LabContext；不要把
+`/admin` 当成模型工具地址。
 
 ### 本地电脑上的工作区
 
 CodexManager 桌面版可以通过回环适配直接管理本机 LabContext，但这仍只是管理连接。若要让
-ChatGPT 网页使用本机项目，需要在本机运行独立 MCP 适配层和一条本机专用 Tunnel；服务器上
-已有的 Tunnel 不会自动获得个人电脑目录。目录授权、环境变量和连接拓扑见
-[本地科研工作区](../local-workspaces.md)。
+ChatGPT 网页使用本机项目，需要在本机运行 MCP endpoint 和 Tunnel。统一 Router 可让一条
+Tunnel 同时路由本机与 SSH 转发后的服务器 Provider，同时保持两套 Provider 独立安装。配置见
+[统一 LabContext Router](../labcontext-router.md)，目录授权见[本地科研工作区](../local-workspaces.md)。
 
 ## 插件模板的使用方式
 

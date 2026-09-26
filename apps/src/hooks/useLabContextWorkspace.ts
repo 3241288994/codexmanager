@@ -47,7 +47,7 @@ function suggestedWorkspaceName(root: string): string {
   return root.split(/[\\/]/).filter(Boolean).at(-1) || "";
 }
 
-export function useLabContextWorkspace(isDesktopRuntime: boolean) {
+export function useLabContextWorkspace(localEnabled: boolean) {
   const queryClient = useQueryClient();
   const [location, setLocation] = useState<LabContextLocation>("server");
   const [selectedId, setSelectedId] = useState<string | null>(() => (
@@ -69,7 +69,7 @@ export function useLabContextWorkspace(isDesktopRuntime: boolean) {
   const overviewQuery = useQuery({
     queryKey: ["labcontext", location, "overview"],
     queryFn: () => labContextClient.overview(location),
-    enabled: location === "server" || isDesktopRuntime,
+    enabled: location === "server" || localEnabled,
     // Keep the control plane fresh while visible without polling in a hidden tab.
     refetchInterval: () => (
       typeof document !== "undefined" && document.visibilityState === "visible"
@@ -98,7 +98,7 @@ export function useLabContextWorkspace(isDesktopRuntime: boolean) {
   );
 
   const switchLocation = (next: LabContextLocation) => {
-    if (next === "local" && !isDesktopRuntime) return;
+    if (next === "local" && !localEnabled) return;
     setLocation(next);
     setSelectedId(window.localStorage.getItem(`labcontext-selected-workspace-${next}`));
     setContextMenu(null);
@@ -291,7 +291,7 @@ export function useLabContextWorkspace(isDesktopRuntime: boolean) {
   };
 
   const setWorkspaceFormLocation = (next: LabContextLocation) => {
-    if (next === "local" && !isDesktopRuntime) return;
+    if (next === "local" && !localEnabled) return;
     setWorkspaceForm((value) => ({ ...value, location: next, root: "" }));
   };
 

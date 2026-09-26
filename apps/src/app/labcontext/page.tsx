@@ -7,6 +7,7 @@ import {
 import { getAppErrorMessage } from "@/lib/api/transport";
 import type { LabContextHealthState, LabContextWorkspace } from "@/types/labcontext";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
+import { useLabContextRouter } from "@/hooks/useLabContextRouter";
 import {
   LABCONTEXT_LOCATION_LABELS,
   useLabContextWorkspace,
@@ -68,7 +69,9 @@ function WorkspaceMenu({ workspace, onMap, onDefault, onRefresh, onGenerate, onD
 
 export default function LabContextPage() {
   const { isDesktopRuntime } = useRuntimeCapabilities();
-  const workspace = useLabContextWorkspace(isDesktopRuntime);
+  const router = useLabContextRouter(!isDesktopRuntime);
+  const localEnabled = isDesktopRuntime || router.localAvailable;
+  const workspace = useLabContextWorkspace(localEnabled);
   const {
     location, switchLocation, overviewQuery, data, selected, setSelectedId,
     workspaceDialog, setWorkspaceDialog, workspaceForm, setWorkspaceForm,
@@ -101,7 +104,7 @@ export default function LabContextPage() {
               </div>
             </div>
             <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
-              <LocationSwitcher location={location} localEnabled={isDesktopRuntime} onChange={switchLocation} />
+              <LocationSwitcher location={location} localEnabled={localEnabled} onChange={switchLocation} />
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => overviewQuery.refetch()} disabled={overviewQuery.isFetching}>
                   <RefreshCw className={overviewQuery.isFetching ? "animate-spin motion-reduce:animate-none" : ""} />
@@ -120,7 +123,9 @@ export default function LabContextPage() {
         <div className="flex items-start gap-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm">
           <Laptop className="mt-0.5 size-4 shrink-0 text-primary" />
           <p className="text-muted-foreground">
-            当前是 Web 控制台，可管理服务器项目；本机目录涉及系统文件权限，请在 CodexManager 桌面版中添加。
+            {router.localAvailable
+              ? "已连接本机 LabContext Router；这个网页现在可以同时管理服务器与本机科研工作区。"
+              : "当前是 Web 控制台，可管理服务器项目；启动本机 labcontext 后，这里会自动解锁“本地电脑”。"}
           </p>
         </div>
       ) : null}
@@ -287,13 +292,13 @@ export default function LabContextPage() {
           <div className="grid gap-5 py-2">
             <div className="grid gap-2">
               <Label><span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">1</span>项目位于哪里？</Label>
-              <LocationSwitcher expanded location={workspaceForm.location} localEnabled={isDesktopRuntime} onChange={setWorkspaceFormLocation} />
-              {!isDesktopRuntime ? <p className="text-xs text-muted-foreground">Web 版不能读取浏览器所在电脑的目录；请使用桌面版添加本地工作区。</p> : null}
+              <LocationSwitcher expanded location={workspaceForm.location} localEnabled={localEnabled} onChange={setWorkspaceFormLocation} />
+              {!isDesktopRuntime ? <p className="text-xs text-muted-foreground">Web 版通过本机 Router 管理目录；只有 Router 已启动且配置了 local Provider 时才能选择本地电脑。</p> : null}
             </div>
             <div className="grid gap-4 rounded-xl border bg-muted/20 p-4">
               <Label><span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">2</span>确认项目信息</Label>
               <div className="grid gap-2"><Label htmlFor="workspace-name" className="text-xs text-muted-foreground">工作区名称</Label><Input id="workspace-name" autoFocus value={workspaceForm.name} onChange={(event) => setWorkspaceForm((value) => ({ ...value, name: event.target.value }))} placeholder="例如：蛋白质结构预测" /></div>
-              <div className="grid gap-2"><Label htmlFor="workspace-root" className="text-xs text-muted-foreground">{workspaceForm.location === "local" ? "本地项目目录" : "服务器绝对路径"}</Label><div className="flex flex-col gap-2 sm:flex-row"><Input id="workspace-root" readOnly={workspaceForm.location === "local"} value={workspaceForm.root} onChange={(event) => setWorkspaceForm((value) => ({ ...value, root: event.target.value }))} placeholder={workspaceForm.location === "local" ? "点击选择一个项目文件夹" : "/srv/research/project"} />{workspaceForm.location === "local" ? <Button type="button" variant="outline" className="sm:shrink-0" disabled={pickDirectoryMutation.isPending} onClick={() => pickDirectoryMutation.mutate()}><HardDrive />{pickDirectoryMutation.isPending ? "选择中…" : "选择文件夹"}</Button> : null}</div>{workspaceForm.location === "local" ? <p className="text-xs leading-5 text-muted-foreground">目录会由系统选择器显式授权，选择后将自动使用文件夹名；不会开放整个磁盘或用户目录。</p> : <p className="text-xs leading-5 text-muted-foreground">填写 LabContext 服务所在服务器能够访问的绝对路径，不是浏览器或本机路径。</p>}</div>
+              <div className="grid gap-2"><Label htmlFor="workspace-root" className="text-xs text-muted-foreground">{workspaceForm.location === "local" ? "本地项目目录" : "服务器绝对路径"}</Label><div className="flex flex-col gap-2 sm:flex-row"><Input id="workspace-root" readOnly={workspaceForm.location === "local" && isDesktopRuntime} value={workspaceForm.root} onChange={(event) => setWorkspaceForm((value) => ({ ...value, root: event.target.value }))} placeholder={workspaceForm.location === "local" ? (isDesktopRuntime ? "点击选择一个项目文件夹" : "/Users/you/research/project") : "/srv/research/project"} />{workspaceForm.location === "local" && isDesktopRuntime ? <Button type="button" variant="outline" className="sm:shrink-0" disabled={pickDirectoryMutation.isPending} onClick={() => pickDirectoryMutation.mutate()}><HardDrive />{pickDirectoryMutation.isPending ? "选择中…" : "选择文件夹"}</Button> : null}</div>{workspaceForm.location === "local" ? <p className="text-xs leading-5 text-muted-foreground">{isDesktopRuntime ? "目录会由系统选择器显式授权，选择后将自动使用文件夹名；不会开放整个磁盘或用户目录。" : "填写运行本机 LabContext 的电脑能够访问的绝对路径；Router 只会把它交给 local Provider。"}</p> : <p className="text-xs leading-5 text-muted-foreground">填写 LabContext 服务所在服务器能够访问的绝对路径，不是浏览器或本机路径。</p>}</div>
             </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setWorkspaceDialog(false)}>取消</Button><Button disabled={workspaceMutation.isPending || !workspaceForm.name.trim() || !workspaceForm.root.trim()} onClick={() => workspaceMutation.mutate(workspaceForm)}>{workspaceMutation.isPending ? "正在识别项目…" : "添加并自动配置"}</Button></DialogFooter>

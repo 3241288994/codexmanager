@@ -95,12 +95,16 @@ if (root / ".app.json").exists():
     raise SystemExit("public plugin template contains .app.json")
 PY
 
-PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile scripts/open-source/package.py
-if command -v cargo >/dev/null 2>&1; then
+PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile \
+  scripts/open-source/package.py \
+  scripts/labcontext.py \
+  scripts/labcontext_router.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+if command -v cargo >/dev/null 2>&1 && cargo --version >/dev/null 2>&1; then
   cargo metadata --locked --no-deps --format-version 1 >/dev/null
   cargo metadata --manifest-path apps/src-tauri/Cargo.toml --locked --no-deps --format-version 1 >/dev/null
 else
-  echo "warning: cargo unavailable; skipped Rust manifest validation" >&2
+  echo "warning: usable cargo toolchain unavailable; skipped Rust manifest validation" >&2
 fi
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then

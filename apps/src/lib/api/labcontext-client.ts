@@ -1,4 +1,5 @@
-import { invoke, withAddr } from "./transport";
+import { callLocalLabContextRouter } from "./labcontext-router-client";
+import { invoke, isTauriRuntime, withAddr } from "./transport";
 import type {
   LabContextLocation,
   LabContextOverview,
@@ -15,7 +16,9 @@ function call<T>(
   params: Record<string, unknown> = {},
 ): Promise<T> {
   if (location === "local") {
-    return invoke<T>("app_labcontext_local_call", { operation: localOperation, params });
+    return isTauriRuntime()
+      ? invoke<T>("app_labcontext_local_call", { operation: localOperation, params })
+      : callLocalLabContextRouter<T>(localOperation, params);
   }
   return invoke<T>(serverCommand, withAddr(params));
 }
@@ -51,7 +54,10 @@ export const labContextClient = {
     location: LabContextLocation;
   }): Promise<{ ok: boolean; workspaceId: string; overviewGeneration?: WorkspaceOverviewGeneration }> {
     if (payload.location === "local") {
-      return invoke("app_labcontext_local_upsert_workspace", { name: payload.name, root: payload.root });
+      const params = { name: payload.name, root: payload.root };
+      return isTauriRuntime()
+        ? invoke("app_labcontext_local_upsert_workspace", params)
+        : callLocalLabContextRouter("upsertWorkspace", params);
     }
     return invoke("service_labcontext_upsert_workspace", withAddr({ name: payload.name, root: payload.root }));
   },

@@ -111,8 +111,33 @@ const researchMapBundle = {
   events: [],
 };
 
-async function mockConsoleApi(page: Page) {
+async function mockConsoleApi(page: Page, localRouter = false) {
   const methods: string[] = [];
+  await page.route("http://127.0.0.1:1460/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/providers") {
+      await route.fulfill({
+        contentType: "application/json; charset=utf-8",
+        body: JSON.stringify({
+          providers: localRouter ? [{
+            id: "local",
+            label: "This computer",
+            mcpUrl: "http://127.0.0.1:1456/mcp",
+            adminEnabled: true,
+            status: "ready",
+            adminStatus: "ready",
+          }] : [],
+        }),
+      });
+      return;
+    }
+    const body = JSON.parse(route.request().postData() || "{}");
+    const result = body.operation === "getResearchMap" ? researchMapBundle : labContextOverview;
+    await route.fulfill({
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ result }),
+    });
+  });
   await page.route("**/api/runtime**", async (route) => {
     await route.fulfill({
       contentType: "application/json; charset=utf-8",
@@ -290,4 +315,22 @@ test("the maintained account, analytics, session, and LabContext routes load thr
   ]) {
     expect(methods).toContain(method);
   }
+});
+
+test("the Web console unlocks local workspaces when the loopback Router is ready", async ({ page }) => {
+  await mockConsoleApi(page, true);
+  await page.goto("/labcontext/");
+
+  await expect(page.getByText("已连接本机 LabContext Router")).toBeVisible();
+  const localButton = page.getByRole("button", { name: "本地电脑" }).first();
+  await expect(localButton).toBeEnabled();
+  await localButton.click();
+  await expect(page.getByText("当前设备", { exact: true })).toBeVisible();
+  await expect(page.getByText("Example Research", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "添加工作区" }).click();
+  await page.getByRole("radio", { name: /本地电脑/ }).click();
+  const root = page.getByLabel("本地项目目录");
+  await expect(root).toBeEditable();
+  await root.fill("/Users/research/project");
 });

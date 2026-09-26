@@ -79,7 +79,7 @@ docker compose --env-file deploy/.env \
 `host.docker.internal` 这一个 Docker 宿主机网关。服务端也会拒绝任意远程主机和 HTTPS
 管理员 URL。
 
-个人 SSH Host 别名、临时端口转发（例如本地的 `labcontext-hvs`）不应进入仓库配置。若
+个人 SSH Host 别名和临时端口转发命令不应进入仓库配置。若
 LabContext 只能通过转发访问，请让转发进程与原生 CodexManager 在同一私有网络边界内运行，
 或将 LabContext 部署到同一 Docker 宿主机；不要把管理员端口暴露到公网。
 
@@ -91,7 +91,11 @@ LabContext 只能通过转发访问，请让转发进程与原生 CodexManager �
 | 管理 RPC | `/api/rpc`、`/rpc` | 不公开，不提供给模型 |
 | OpenAI 兼容网关 | `/v1/responses` 等 | 当前公开版不暴露；不要作为客户端或 MCP 地址使用 |
 | LabContext 管理端 | `127.0.0.1:1455/admin` | 不公开，仅控制面使用 |
-| MCP | `/mcp` | 当前项目不存在；需独立实现 |
+| 可选 MCP Router | 本机 `127.0.0.1:1460/mcp` | 仅由 Secure MCP Tunnel 访问；不直接公开 |
+
+可选 Router 与服务器部署解耦，并应运行在管理者自己的电脑上；它可以把 SSH 转发后的 server
+Provider 与本机 local Provider 聚合为一个 MCP endpoint。安装和三种模式见
+[统一 LabContext Router](../labcontext-router.md)。
 
 若未来必须公网部署，至少增加 HTTPS、强认证、限流、请求体大小限制、审计日志脱敏，并把
 管理域名与模型工具域名拆分。不要直接修改安全 Compose 的回环端口映射来“临时上线”。
