@@ -164,6 +164,45 @@ async function mockConsoleApi(page: Page) {
         usagePollingEnabled: true,
         usagePollIntervalSecs: 600,
       },
+      "account/analytics/pricingRefresh": {
+        attemptedAt: Math.floor(Date.now() / 1000),
+        error: null,
+        snapshot: {
+          fetchedAt: Math.floor(Date.now() / 1000),
+          usdPerCredit: 0.04,
+          apiSource: "https://developers.openai.com/api/docs/pricing",
+          creditSource: "https://learn.chatgpt.com/docs/pricing",
+          apiSha256: "test-api",
+          creditSha256: "test-credit",
+          evidence: [],
+        },
+      },
+      "account/analytics/read": {
+        accountId: body.params?.accountId ?? "account-1",
+        source: "chatgpt-wham",
+        startDate: body.params?.startDate,
+        endDate: body.params?.endDate,
+        days: [{
+          date: body.params?.startDate,
+          totals: {
+            credits: 2.5,
+            turns: 8,
+            uncachedInputTokens: 100,
+            cachedInputTokens: 50,
+            outputTokens: 25,
+            totalTokens: 175,
+          },
+          capturedAt: Math.floor(Date.now() / 1000),
+        }],
+        sync: {
+          attemptedAt: Math.floor(Date.now() / 1000),
+          succeededAt: Math.floor(Date.now() / 1000),
+          error: null,
+          startDate: body.params?.startDate,
+          endDate: body.params?.endDate,
+        },
+        usdPerCredit: null,
+      },
       "codexProfile/get": {
         codexHome: "/tmp/codex",
         mode: "direct_account",
@@ -209,13 +248,17 @@ async function mockConsoleApi(page: Page) {
   return methods;
 }
 
-test("the maintained account, session, and LabContext routes load through Web RPC", async ({ page }) => {
+test("the maintained account, analytics, session, and LabContext routes load through Web RPC", async ({ page }) => {
   const methods = await mockConsoleApi(page);
 
   await page.goto("/");
   await expect(page.getByText("账号与额度", { exact: true }).first()).toBeVisible();
   await expect(page.getByTitle("Research account")).toBeVisible();
   await expect(page.getByText("服务已连接", { exact: true })).toBeVisible();
+
+  await page.getByRole("link", { name: "用量分析" }).click();
+  await expect(page.getByRole("heading", { name: "用量分析" })).toBeVisible();
+  await expect(page.getByTestId("usage-chart")).toBeVisible();
 
   await page.getByRole("link", { name: "会话与恢复" }).click();
   await expect(page.getByText("Session Demo", { exact: true }).first()).toBeVisible();
@@ -230,6 +273,8 @@ test("the maintained account, session, and LabContext routes load through Web RP
     "initialize",
     "account/list",
     "account/usage/list",
+    "account/analytics/pricingRefresh",
+    "account/analytics/read",
     "codexProfile/get",
     "sessionCatalog/list",
     "labcontext/overview",

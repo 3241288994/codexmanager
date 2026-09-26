@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenCheck, ChevronLeft, ChevronRight, Gauge, History } from "lucide-react";
+import { BarChart3, BookOpenCheck, ChevronLeft, ChevronRight, Gauge, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store/useAppStore";
@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n/provider";
 
 const ROUTES = [
   { href: "/", label: "账号与额度", icon: Gauge },
+  { href: "/analytics", label: "用量分析", icon: BarChart3 },
   { href: "/sessions", label: "会话与恢复", icon: History },
   { href: "/labcontext", label: "科研工作区", icon: BookOpenCheck },
 ] as const;

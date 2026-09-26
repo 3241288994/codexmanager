@@ -14,11 +14,13 @@ export function Header() {
   const { appSettings, serviceStatus } = useAppStore();
   const { t } = useI18n();
   const { mode } = useRuntimeCapabilities();
-  const title = pathname.startsWith("/labcontext")
-    ? "科研工作区"
-    : pathname.startsWith("/sessions")
-      ? "会话与恢复"
-      : "账号与额度";
+  const title = pathname.startsWith("/analytics")
+    ? "用量分析"
+    : pathname.startsWith("/labcontext")
+      ? "科研工作区"
+      : pathname.startsWith("/sessions")
+        ? "会话与恢复"
+        : "账号与额度";
   const canLogout = mode === "web-gateway" && appSettings.webAuthMode !== "none";
 
   return (

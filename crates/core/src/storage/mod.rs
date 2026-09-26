@@ -25,6 +25,7 @@ mod request_token_stats;
 mod settings;
 mod tokens;
 mod usage;
+pub mod usage_analytics;
 
 #[derive(Debug, Clone)]
 pub struct Account {
@@ -1043,6 +1044,10 @@ impl Storage {
             "068_request_logs_route_strategy_source",
             include_str!("../../migrations/068_request_logs_route_strategy_source.sql"),
             |s| s.ensure_request_log_route_strategy_columns(),
+        )?;
+        self.apply_sql_migration(
+            "069_usage_analytics",
+            include_str!("../../migrations/069_usage_analytics.sql"),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

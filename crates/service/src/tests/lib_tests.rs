@@ -115,6 +115,10 @@ fn member_actor_cannot_call_admin_only_rpc() {
     for method in [
         "accountManager/users/list",
         "account/list",
+        "account/analytics/read",
+        "account/analytics/refresh",
+        "account/analytics/setRate",
+        "account/analytics/pricingRefresh",
         "account/login/start",
         "appSettings/get",
         "codexProfile/applyDirectAccount",

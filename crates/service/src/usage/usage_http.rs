@@ -11,6 +11,100 @@ use tokio::runtime::{Builder, Runtime};
 use crate::account_plan::normalize_account_plan_value;
 
 static USAGE_HTTP_CLIENT: OnceLock<RwLock<Client>> = OnceLock::new();
+
+/// Fetches only the two fixed public pricing documents. Account credentials and
+/// workspace headers are deliberately never attached to these requests.
+pub(crate) fn fetch_official_pricing(url: &str) -> Result<String, String> {
+    if !matches!(
+        url,
+        "https://developers.openai.com/api/docs/pricing.md"
+            | "https://learn.chatgpt.com/docs/pricing.md"
+    ) {
+        return Err("定价来源不受支持".into());
+    }
+    run_usage_future(async {
+        let builder = Client::builder()
+            .timeout(Duration::from_secs(20))
+            .redirect(reqwest::redirect::Policy::none());
+        let client = crate::gateway::apply_async_upstream_proxy(
+            builder,
+            current_upstream_proxy_url().as_deref(),
+            "pricing_proxy_invalid",
+        )
+        .build()
+        .map_err(|_| "无法建立官方定价连接")?;
+        let mut response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| "官方定价同步失败，请检查网络或代理")?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "官方定价请求失败（HTTP {}）",
+                response.status().as_u16()
+            ));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| "读取官方定价失败")? {
+            if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+                return Err("官方定价响应超出大小限制".into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        String::from_utf8(bytes).map_err(|_| "官方定价文档编码无法识别".into())
+    })
+}
+
+pub(crate) fn fetch_daily_analytics(
+    base_url: &str,
+    bearer: &str,
+    workspace: &str,
+    start: &str,
+    end: &str,
+) -> Result<serde_json::Value, String> {
+    let endpoint = usage_endpoint(base_url);
+    let prefix = endpoint
+        .strip_suffix("/wham/usage")
+        .ok_or("此用量服务地址不支持 ChatGPT 每日统计")?;
+    let url = format!("{prefix}/wham/analytics/daily-workspace-usage-counts");
+    run_usage_future(async {
+        let mut response = usage_http_client()
+            .get(url)
+            .bearer_auth(bearer)
+            .headers(build_usage_request_headers(Some(workspace)))
+            .query(&[
+                ("start_date", start),
+                ("end_date", end),
+                ("group_by", "day"),
+            ])
+            .timeout(Duration::from_secs(45))
+            .send()
+            .await
+            .map_err(|_| "用量统计请求失败，请检查网络或代理；历史数据已保留".to_string())?;
+        if !response.status().is_success() {
+            return Err(match response.status().as_u16() {
+                401 => "用量凭据已过期，请在 Codex 登录后重试（未修改当前登录状态）".into(),
+                403 => "当前凭据或工作区无每日统计访问权限（HTTP 403）；历史数据已保留".into(),
+                429 => "用量接口限流（HTTP 429），请稍后刷新".into(),
+                code => format!("用量接口暂不可用（HTTP {code}）；历史数据已保留"),
+            });
+        }
+        // Never expose upstream error bodies or persist authentication material.
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| "读取用量响应失败".to_string())?
+        {
+            if bytes.len() + chunk.len() > 8 * 1024 * 1024 {
+                return Err("用量响应过大，请缩小日期范围".into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&bytes)
+            .map_err(|_| "用量接口返回非 JSON 数据，已保留历史数据".into())
+    })
+}
 static SUBSCRIPTION_HTTP_CLIENT: OnceLock<RwLock<Client>> = OnceLock::new();
 static USAGE_HTTP_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 const USAGE_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);

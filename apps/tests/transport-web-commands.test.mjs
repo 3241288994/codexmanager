@@ -68,6 +68,18 @@ test("current account and session commands have Web RPC mappings", () => {
   assert.deepEqual(commandMap.service_initialize, { rpcMethod: "initialize" });
   assert.deepEqual(commandMap.service_account_list, { rpcMethod: "account/list" });
   assert.deepEqual(commandMap.service_usage_list, { rpcMethod: "account/usage/list" });
+  assert.deepEqual(commandMap.service_usage_analytics_read, {
+    rpcMethod: "account/analytics/read",
+  });
+  assert.deepEqual(commandMap.service_usage_analytics_refresh, {
+    rpcMethod: "account/analytics/refresh",
+  });
+  assert.deepEqual(commandMap.service_usage_analytics_set_rate, {
+    rpcMethod: "account/analytics/setRate",
+  });
+  assert.deepEqual(commandMap.service_usage_analytics_pricing_refresh, {
+    rpcMethod: "account/analytics/pricingRefresh",
+  });
   assert.deepEqual(commandMap.service_session_catalog_list, {
     rpcMethod: "sessionCatalog/list",
   });

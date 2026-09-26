@@ -8,6 +8,8 @@ CodexManager 有三个面向用户的领域：
 Browser / Tauri
   ├─ Accounts & Usage
   │   ├─ verified Codex identity and usage snapshots
+  │   ├─ daily workspace analytics and retained history
+  │   ├─ official-table-derived, non-billing value reference
   │   └─ explicit credential switching
   ├─ Sessions & Recovery
   │   ├─ read-only state_5.sqlite catalog
@@ -26,6 +28,8 @@ Browser / Tauri
 `codexmanager-web` 提供静态 Next.js UI，并将受认证保护的 JSON-RPC 转发至 `codexmanager-service`。桌面端通过 Tauri 命令调用同一组服务能力；Web 端通过 `/api/runtime` 和 `/api/rpc` 使用等价的命令映射。
 
 服务拥有账号存储、OpenAI 设备授权和用量刷新、Codex profile 写入、本地会话索引与 LabContext 控制面适配。`codexmanager-start` 将 service 与 web 壳组合成单一进程组。
+
+每日用量分析通过独立的 `usage_analytics_*` 表按账号和日期保存标准化结果与有限快照。原始访问令牌、Cookie 和完整上游响应不会进入这些表。价格同步只访问固定的 OpenAI 公开文档地址，不携带账号凭据；推导金额始终标记为参考值而非账单。
 
 ## 关键不变量
 
@@ -54,6 +58,7 @@ LabContext 管理端默认只能使用 HTTP loopback 地址。容器部署时可
 
 - Web 访问认证保护管理 RPC。
 - 在 `accounts` 多用户认证模式中，成员只能访问自己的 API Key、用量摘要与请求日志；服务器账号、Codex 配置、会话目录、LabContext 管理面及全局设置均要求管理员角色。
+- 每日工作区分析可以读取服务器账号凭据并请求 ChatGPT 工作区统计，因此 `account/analytics/*` RPC 在多用户模式中保持管理员专用。
 - Service 与 Web 默认应只监听 loopback；公网部署需要独立的 TLS、认证、限流与审计设计。
 - 账号 token、RPC token、平台 Key、Codex 状态和 LabContext 管理 token 都是本地秘密，不能提交或写入普通日志。
 - 当前公开版不暴露 `/v1`，也不提供 MCP endpoint。ChatGPT 模型工具必须通过独立、最小权限的 MCP 服务提供。

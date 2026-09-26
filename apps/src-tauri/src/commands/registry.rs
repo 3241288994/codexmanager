@@ -2,6 +2,10 @@ macro_rules! invoke_handler {
     () => {
         tauri::generate_handler![
             // service
+            crate::commands::usage_analytics::service_usage_analytics_read,
+            crate::commands::usage_analytics::service_usage_analytics_refresh,
+            crate::commands::usage_analytics::service_usage_analytics_set_rate,
+            crate::commands::usage_analytics::service_usage_analytics_pricing_refresh,
             crate::commands::service::service_start,
             crate::commands::service::service_stop,
             crate::commands::service::service_initialize,

@@ -20,5 +20,6 @@ pub mod startup;
 pub mod system;
 pub mod updater;
 pub mod usage;
+pub mod usage_analytics;
 
 pub(crate) use registry::invoke_handler;

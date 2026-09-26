@@ -9,12 +9,14 @@ corepack pnpm@10.30.3 -C apps run test:runtime
 corepack pnpm@10.30.3 -C apps run test:e2e
 ```
 
-`test:runtime` validates the maintained browser/desktop transport surface, command registration, and key utility behavior. `test:e2e` builds the static export and exercises the three supported routes with mocked service responses. Install Playwright browsers when prompted by Playwright.
+`test:runtime` validates the maintained browser/desktop transport surface, command registration, analytics calculations, and key utility behavior. `test:e2e` builds the static export and exercises the four supported routes with mocked service responses. Install Playwright browsers when prompted by Playwright.
 
 ## Rust
 
 ```bash
 cargo test --workspace --locked -- --test-threads=1
+cargo test -p codexmanager-core --locked usage_analytics --lib
+cargo test -p codexmanager-service --locked usage_analytics --lib
 cargo test -p codexmanager-service --locked labcontext::tests
 cargo test -p codexmanager-web --locked
 cargo test --manifest-path apps/src-tauri/Cargo.toml --locked --lib

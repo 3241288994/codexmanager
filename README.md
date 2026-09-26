@@ -34,6 +34,7 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
   <img width="1682" height="812" alt="image" src="https://github.com/user-attachments/assets/27f83e5e-67a3-4a74-aeec-398cc4647539" />
 - **账号与额度**：通过官方设备授权添加账号，显示实际生效身份、套餐信号与额度快照，并安全切换服务器上的 Codex 凭据。
   <img width="2358" height="1392" alt="image" src="https://github.com/user-attachments/assets/f197bd8d-97e6-45ba-ba54-9af31e89efdc" />
+- **用量分析与价格参考**：按账号保存每日 Credits、Token 与交互历史，提供趋势图、JSON/CSV 导出，并通过两份官方价格表交叉验证后给出非账单性质的 USD 参考金额。详见[用量分析说明](docs/usage-analytics.md)。
 - **会话与恢复**：只读取 `state_5.sqlite` 元数据来搜索本地会话，生成 `codex resume` 命令；必要时对单个 provider 索引做可审计、可备份的修复。
   <img width="2366" height="1278" alt="image" src="https://github.com/user-attachments/assets/63e5a98a-f6b4-4fb9-8c10-37183dc9c444" />
 - **LabContext 工作区**：登记科研工作区、查看模型可见资产、管理工具策略、验证模型可见结果，并跟踪分析任务和研究图。
@@ -133,4 +134,4 @@ cm-skills/               可选的 CodexManager Images API 本地技能
 
 ## 许可与来源
 
-本项目采用 [MIT License](LICENSE)。它基于 `qxcnm/Codex-Manager` 的 MIT 许可代码演进而来；版权与来源说明见 [NOTICE](NOTICE)。
+本项目采用 [MIT License](LICENSE)。它基于 `qxcnm/Codex-Manager` 的 MIT 许可代码演进而来；版权与来源说明见 [NOTICE](NOTICE) 与[第三方声明](THIRD_PARTY_NOTICES.md)。

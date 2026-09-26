@@ -24,6 +24,7 @@ mod session_catalog;
 mod startup_snapshot;
 mod storage;
 mod usage;
+mod usage_analytics;
 
 pub(crate) use account::availability as account_availability;
 pub(crate) use account::list as account_list;

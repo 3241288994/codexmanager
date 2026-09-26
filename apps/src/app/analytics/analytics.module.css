@@ -1,0 +1,123 @@
+.page {
+  --analytics-mint: #77cdb5;
+  --analytics-blue: #82b9e8;
+  --analytics-lilac: #b3a6e8;
+  --analytics-accent: color-mix(in srgb, #31a68d 75%, var(--foreground));
+}
+
+.panel {
+  border-radius: 18px;
+  box-shadow: 0 3px 16px rgb(15 23 42 / 0.025);
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 12px;
+  color: color-mix(in srgb, var(--tone, #77cdb5) 55%, var(--foreground));
+  background: color-mix(in srgb, var(--tone, #77cdb5) 16%, var(--card-solid));
+}
+
+.stat {
+  position: relative;
+  min-width: 0;
+  padding: 18px 20px;
+  gap: 16px;
+}
+
+.stat::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 20px;
+  right: 20px;
+  height: 3px;
+  background: var(--tone, var(--analytics-mint));
+  border-radius: 0 0 4px 4px;
+}
+
+.input {
+  height: 38px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  padding: 0 11px;
+  color: var(--foreground);
+  font-size: 13px;
+  outline: none;
+}
+
+.input:focus-visible, .segmented button:focus-visible, .details summary:focus-visible {
+  outline: 2px solid var(--analytics-accent);
+  outline-offset: 3px;
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--muted);
+}
+
+.segmented button {
+  cursor: pointer;
+  border-radius: 7px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  transition: background-color 150ms, color 150ms;
+}
+
+.segmented button:hover { color: var(--foreground); }
+.segmented button[aria-pressed='true'] {
+  background: var(--card-solid);
+  color: var(--analytics-accent);
+  box-shadow: 0 1px 4px rgb(15 23 42 / 0.06);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.tooltip {
+  min-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 14px 16px;
+  background: var(--card-solid);
+  color: var(--foreground);
+  box-shadow: 0 6px 24px rgb(15 23 42 / 0.1);
+  font-size: 12px;
+}
+
+.details summary { cursor: pointer; color: var(--muted-foreground); font-size: 12px; }
+.details[open] summary { margin-bottom: 16px; }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: right; font-size: 12px; }
+.table th { position: sticky; top: 0; z-index: 1; background: var(--card-solid); font-weight: 500; color: var(--muted-foreground); }
+.table th, .table td { padding: 14px 16px; white-space: nowrap; border-bottom: 1px solid var(--border); }
+.table th:first-child, .table td:first-child { text-align: left; padding-left: 24px; }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--muted) 45%, transparent); }
+.table tbody tr:hover { background: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented button { transition: none; }
+}

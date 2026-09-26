@@ -23,6 +23,12 @@ const RPC_BULK_USAGE_REFRESH_IO_TIMEOUT: Duration = Duration::from_secs(600);
 /// # 返回
 /// 返回函数执行结果
 fn rpc_io_timeout(method: &str, params: Option<&serde_json::Value>) -> Duration {
+    if matches!(
+        method,
+        "account/analytics/refresh" | "account/analytics/pricingRefresh"
+    ) {
+        return Duration::from_secs(60);
+    }
     if method == "account/usage/refresh"
         && params
             .and_then(|value| value.get("accountId"))
@@ -205,6 +211,14 @@ pub(crate) fn rpc_call(
 #[cfg(test)]
 mod tests {
     use super::{rpc_io_timeout, RPC_BULK_USAGE_REFRESH_IO_TIMEOUT, RPC_DEFAULT_IO_TIMEOUT};
+
+    #[test]
+    fn analytics_refresh_allows_upstream_timeout() {
+        assert_eq!(
+            rpc_io_timeout("account/analytics/refresh", None),
+            std::time::Duration::from_secs(60)
+        );
+    }
 
     /// 函数 `bulk_usage_refresh_uses_extended_timeout`
     ///

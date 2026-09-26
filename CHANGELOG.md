@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added retained daily usage analytics, official-pricing reference synchronization, JSON/CSV export, and a refreshed analytics dashboard while keeping the new RPC surface administrator-only in multi-user mode.
 - Prepared the repository for a clean public GitHub import.
 - Removed bundled personal contact, payment, sponsor, referral, and external author-content defaults.
 - Added secure LabContext Docker override guidance and support for Docker's local host gateway.
