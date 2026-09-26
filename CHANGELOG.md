@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Refined the research workspace console with visibility-aware polling, clearer server/local connection states, guided workspace setup, and a refreshed responsive interface.
 - Added desktop-only local research workspaces with native folder selection, isolated server/local LabContext state, loopback-only administration, and documented local Secure MCP Tunnel topology.
 - Added retained daily usage analytics, official-pricing reference synchronization, JSON/CSV export, and a refreshed analytics dashboard while keeping the new RPC surface administrator-only in multi-user mode.
 - Prepared the repository for a clean public GitHub import.

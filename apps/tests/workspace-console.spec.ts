@@ -265,9 +265,16 @@ test("the maintained account, analytics, session, and LabContext routes load thr
   await expect(page.getByText("本地会话", { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: "科研工作区" }).click();
+  await expect(page.getByRole("heading", { name: "让 ChatGPT 读懂你的科研项目" })).toBeVisible();
   await expect(page.getByRole("button", { name: "本地电脑" }).first()).toBeDisabled();
+  await expect(page.getByText("当前是 Web 控制台，可管理服务器项目")).toBeVisible();
   await expect(page.getByText("Example Research", { exact: true })).toBeVisible();
   await expect(page.getByText("模型可见工具", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "添加工作区" }).click();
+  await expect(page.getByRole("dialog")).toContainText("两步完成注册");
+  await expect(page.getByRole("radio", { name: /本地电脑/ })).toBeDisabled();
+  await page.getByRole("button", { name: "取消" }).click();
 
   for (const method of [
     "appSettings/get",
