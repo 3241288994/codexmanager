@@ -6,7 +6,7 @@
 
 **完整接入路径：** `ChatGPT 网页版` → `Secure MCP Tunnel` → `独立、受审计的 MCP 适配层` → `CodexManager / LabContext` → `科研服务器`
 
-[部署到服务器](docs/open-source/01-server-deployment.md) · [连接 ChatGPT](docs/open-source/03-openai-plugin-and-tunnel.md) · [本地工作区](docs/local-workspaces.md) · [安全边界](#重要边界)
+[交给 Agent 安装](INSTALL.md) · [部署到服务器](docs/open-source/01-server-deployment.md) · [连接 ChatGPT](docs/open-source/03-openai-plugin-and-tunnel.md) · [本地工作区](docs/local-workspaces.md) · [安全边界](#重要边界)
 
 English: **Bring authorized ChatGPT web workflows to server-side research projects.** CodexManager is a secure, local-first operations layer; connect ChatGPT through a separate reviewed MCP adapter and Secure MCP Tunnel, then manage the server-side research workflow from one place.
 
@@ -28,6 +28,21 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
 <img width="1356" height="1190" alt="image" src="https://github.com/user-attachments/assets/2a9e0882-cd8d-42f0-887b-96725140550e" />
 
 > **从这里开始：** 若你已拥有可用的 MCP 适配层，直接阅读 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)；若还没有，应先实现并审计适配层，再连接 ChatGPT。
+
+## 最省事的安装方式：交给 Agent
+
+不需要把整篇部署文档复制进对话。告诉 Agent 安装模式和允许访问的目录，让它先读取仓库根目录的
+[`INSTALL.md`](INSTALL.md)，即可按固定检查点完成安装、保留已有配置并给出验收报告：
+
+```text
+请安装 https://github.com/3241288994/codexmanager ，模式为 hybrid。
+服务器 SSH Host 是 <你的 SSH 别名>；本机允许读取 <本机目录>，服务器允许读取 <服务器目录>。
+请先完整阅读仓库中的 AGENTS.md 和 INSTALL.md，按其中的 Agent 执行契约操作；
+沿用已有 SSH 配置和密钥，不在对话或日志中输出凭据。只有必须由我在 OpenAI 页面完成时再通知我。
+```
+
+只使用本机时把模式改为 `local` 并删去服务器信息；只使用服务器时改为 `server`。教程将安装拆成
+CodexManager、Provider、Router、Tunnel 四个可独立验收的组件，因此不需要为了少装一端而修改源码。
 
 ## 核心能力
 

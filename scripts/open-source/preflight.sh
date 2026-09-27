@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$repo_dir"
 
-required=(Cargo.toml Cargo.lock LICENSE README.md SECURITY.md apps/package.json apps/pnpm-lock.yaml labcontext-provider/pyproject.toml)
+required=(Cargo.toml Cargo.lock LICENSE README.md INSTALL.md SECURITY.md apps/package.json apps/pnpm-lock.yaml labcontext-provider/pyproject.toml labcontext-provider/labcontext.example.toml)
 for path in "${required[@]}"; do
   test -f "$path" || { echo "missing required file: $path" >&2; exit 1; }
 done

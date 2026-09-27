@@ -1,0 +1,65 @@
+# Copy this file outside the Git checkout, for example to:
+#   ~/.config/labcontext/provider.toml
+# Replace every /CHANGE_ME path before starting the Provider.
+
+[server]
+host = "127.0.0.1"
+port = 1455
+path = "/mcp"
+
+# Legacy/default project settings are also used by global safety limits.
+[project]
+id = "default"
+root = "/CHANGE_ME/authorized-root"
+allowed_roots = ["."]
+denied_globs = [
+  "**/.git/**",
+  "**/.env",
+  "**/.env.*",
+  "**/.ssh/**",
+  "**/*credential*",
+  "**/*secret*",
+  "**/*.key",
+  "**/*.pem",
+]
+
+[registry]
+default_workspace = "default"
+allowed_roots = ["/CHANGE_ME/authorized-root"]
+
+[limits]
+max_response_bytes = 60000
+
+[storage]
+database = "~/.local/state/labcontext/index.db"
+manifest_dir = "~/.local/state/labcontext/manifests"
+ingest_roots = []
+
+[workspaces.default]
+name = "Default Project"
+root = "/CHANGE_ME/authorized-root"
+aliases = ["default"]
+adapters = ["generic"]
+
+[[workspaces.default.assets]]
+id = "project-files"
+kind = "project_docs"
+include = ["**/*.md", "**/*.txt", "**/*.html", "**/*.pdf"]
+exclude = ["**/.git/**", "**/.env", "**/.env.*"]
+adapter = "generic"
+authority = "observed_artifact"
+index_content = "metadata"
+allow_codex = true
+
+[summarizer]
+command = ["codex"]
+timeout_seconds = 900
+model = "gpt-5.6-terra"
+reasoning_effort = "medium"
+max_context_bytes = 120000
+session_dir = "~/.codex/sessions"
+max_session_chars = 16000
+max_session_messages = 24
+recent_session_limit = 3
+recent_session_max_age_days = 14
+recent_session_digest_chars = 900

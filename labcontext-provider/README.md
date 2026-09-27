@@ -193,6 +193,20 @@ defaults are deployment settings rather than package-level assumptions.
 
 ## Server operation
 
+Start from the reviewed example configuration and keep the real configuration
+outside the Git checkout. Replace every `/CHANGE_ME` path and keep
+`registry.allowed_roots` limited to directories the user explicitly approved:
+
+```bash
+install -d -m 0700 ~/.config/labcontext
+install -m 0600 labcontext.example.toml ~/.config/labcontext/provider.toml
+${EDITOR:-vi} ~/.config/labcontext/provider.toml
+labctx --config ~/.config/labcontext/provider.toml workspaces
+```
+
+In a hybrid setup the local Provider normally uses port `1456`, while the
+server Provider remains on `1455` and is reached through the SSH bridge.
+
 ```bash
 cd /opt/labcontext-provider
 uv sync --extra dev

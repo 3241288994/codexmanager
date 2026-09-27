@@ -25,4 +25,5 @@ fi
 "$venv_dir/bin/python" -m pip install --disable-pip-version-check --upgrade "$provider_dir"
 
 echo "installed LabContext Provider to $venv_dir"
-echo "command: $venv_dir/bin/labctx --config /absolute/path/to/labcontext.toml serve"
+echo "example config: $provider_dir/labcontext.example.toml"
+echo "command: $venv_dir/bin/labctx --config ~/.config/labcontext/provider.toml serve"
