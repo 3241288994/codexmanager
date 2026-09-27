@@ -732,7 +732,8 @@ class LabContextRouter:
                 "instructions": (
                     "Unified LabContext router. When the user provides an absolute file or directory path, "
                     "use inspect_path directly and identify source=local or source=server; no workspace "
-                    "registration is needed. For persistent project context, start with list_workspaces and "
+                    "registration is needed. For PDFs, continue from next_start_page or search the document "
+                    "instead of guessing from its filename. For persistent project context, start with list_workspaces and "
                     "use workspace_ref from its response whenever more than one provider is configured."
                 ),
             }

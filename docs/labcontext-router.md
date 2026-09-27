@@ -111,7 +111,8 @@ token 或其他凭据。可用 `LABCONTEXT_STATUS_FILE`、`LABCONTEXT_TUNNEL_HEA
 
 Router 会将 `source=local` 或 `source=server` 交给对应 Provider。hybrid 模式下必须明确来源；
 只配置一个 Provider 时可以省略。可访问范围由对应 Provider 的 `registry.allowed_roots` 决定，
-目录返回深度和条目数受限，凭据、二进制、大文件和拒绝规则仍然生效。
+目录返回深度和条目数受限，凭据、不支持的二进制、大文件和拒绝规则仍然生效。Provider 0.8.0
+可安全提取 HTML 可见正文与文本型 PDF；PDF 支持页码范围和搜索，扫描件会报告需要 OCR。
 
 需要长期项目上下文时，再调用 `list_workspaces`。Router 会给每个结果增加稳定的
 `workspace_ref`，例如 `local:paper-a` 或 `server:paper-a`。之后将这个值传给

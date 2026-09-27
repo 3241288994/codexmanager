@@ -60,6 +60,20 @@ jobs:
       - name: Run Tauri command and updater tests
         run: cargo test --manifest-path apps/src-tauri/Cargo.toml --locked --lib
 
+  labcontext-provider:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: labcontext-provider/pyproject.toml
+      - name: Install Provider and test dependencies
+        run: python -m pip install './labcontext-provider[dev]'
+      - name: Run Provider tests
+        run: python -m pytest -q labcontext-provider/tests
+
   public-release-preflight:
     runs-on: ubuntu-24.04
     steps:

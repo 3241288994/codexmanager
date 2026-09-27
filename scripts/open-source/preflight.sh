@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$repo_dir"
 
-required=(Cargo.toml Cargo.lock LICENSE README.md SECURITY.md apps/package.json apps/pnpm-lock.yaml)
+required=(Cargo.toml Cargo.lock LICENSE README.md SECURITY.md apps/package.json apps/pnpm-lock.yaml labcontext-provider/pyproject.toml)
 for path in "${required[@]}"; do
   test -f "$path" || { echo "missing required file: $path" >&2; exit 1; }
 done
@@ -98,7 +98,9 @@ PY
 PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile \
   scripts/open-source/package.py \
   scripts/labcontext.py \
-  scripts/labcontext_router.py
+  scripts/labcontext_router.py \
+  labcontext-provider/src/labcontext/document_extract.py \
+  labcontext-provider/src/labcontext/direct_path.py
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 if command -v cargo >/dev/null 2>&1 && cargo --version >/dev/null 2>&1; then
   cargo metadata --locked --no-deps --format-version 1 >/dev/null

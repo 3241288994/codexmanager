@@ -41,7 +41,15 @@ export CODEXMANAGER_LOCAL_LABCONTEXT_ADMIN_TOKEN_FILE=/absolute/private/path/adm
 
 这类请求不会修改 Provider 配置，也不会在项目中创建 `.labcontext` 文件。路径必须位于对应
 Provider 的 `registry.allowed_roots` 下；hybrid 模式应明确说“本地电脑”或“服务器”。目录只返回
-有限深度和有限条目，后续文件由模型按需读取，以控制内存和上下文占用。
+有限深度和有限条目，后续文件由模型按需读取，以控制内存和上下文占用。Provider 0.8.0 还支持
+HTML 可见正文和文本型 PDF：PDF 默认返回有限页，可用 `start_page`/`end_page` 继续读取，或用
+`view=search` 定位关键词；扫描型 PDF 不会自动执行高成本 OCR，而会返回 `ocr_required=true`。
+
+Provider 是可选独立包，本机或服务器可以分别安装：
+
+```bash
+LABCONTEXT_PROVIDER_PYTHON=python3.12 ./scripts/install-labcontext-provider.sh
+```
 
 ## 固定为工作区
 

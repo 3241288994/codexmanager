@@ -66,7 +66,9 @@ ChatGPT 网页使用本机项目，需要在本机运行 MCP endpoint 和 Tunnel
 Tunnel 同时路由本机与 SSH 转发后的服务器 Provider，同时保持两套 Provider 独立安装。配置见
 [统一 LabContext Router](../labcontext-router.md)，目录授权见[本地工作区](../local-workspaces.md)。
 兼容 Provider 暴露 `inspect_path` 后，ChatGPT 也可以直接读取其 `registry.allowed_roots` 下的本机
-或服务器绝对路径，无需先注册工作区；hybrid 模式下应在提示词中明确来源。
+或服务器绝对路径，无需先注册工作区；hybrid 模式下应在提示词中明确来源。仓库内的独立
+Provider 0.8.0 支持文本、HTML 和文本型 PDF，PDF 可按页续读或搜索；扫描件会返回需要 OCR。
+本机与服务器 Provider 可分别安装，不要求同时启用。
 
 ## 插件模板的使用方式
 

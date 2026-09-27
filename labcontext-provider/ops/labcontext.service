@@ -1,0 +1,17 @@
+[Unit]
+Description=LabContext read-only MCP gateway
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/opt/labcontext-provider
+EnvironmentFile=-%h/.config/labcontext/provider.env
+ExecStart=%h/.local/opt/labcontext-provider/.venv/bin/labctx --config %h/.config/labcontext/provider.toml serve
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=default.target

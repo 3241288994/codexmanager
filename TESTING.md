@@ -30,6 +30,17 @@ documented command and CI deterministic.
 
 The desktop updater is intentionally disabled until `CODEXMANAGER_UPDATE_REPO=owner/repository` is configured. Keep it unset in development and public-source checks unless you are testing your own GitHub Release feed.
 
+## LabContext Provider
+
+Use Python 3.11 or newer. The suite includes real generated HTML/PDF fixtures,
+direct-path safety checks, MCP tool-schema coverage, and document pagination.
+
+```bash
+python3.12 -m venv /tmp/labcontext-provider-test
+/tmp/labcontext-provider-test/bin/pip install './labcontext-provider[dev]'
+/tmp/labcontext-provider-test/bin/pytest -q labcontext-provider/tests
+```
+
 ## Container and release checks
 
 ```bash

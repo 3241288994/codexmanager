@@ -1,0 +1,9 @@
+# This is a reviewed research-state file, not an automatic model summary.
+# Copy it to <workspace>/docs/labcontext-context.yaml and fill only claims that
+# you are willing to treat as current project background.
+updated_at: null
+objective: null
+current_question: null
+supported_findings: []
+open_questions: []
+next_step: null

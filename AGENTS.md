@@ -17,6 +17,8 @@ Tauri rules.
 - `crates/web/`: service-mode Web UI shell, embedded static UI serving, and
   `/api/runtime` / `/api/rpc` proxy behavior.
 - `crates/start/`: service-mode launcher that starts service + web together.
+- `labcontext-provider/`: independently installable Python MCP Provider for
+  bounded workspace, document, evidence, and experiment access.
 - `scripts/`, `docker/`, `.github/`: build, release, probe, container, and CI
   automation.
 
@@ -30,6 +32,8 @@ Tauri rules.
   focused modules, hooks, or domain helpers.
 - Do not mix release/script changes with product behavior unless the task
   explicitly requires it.
+- Keep filesystem parsing and Provider MCP behavior in `labcontext-provider/`;
+  the Router should route and qualify tools rather than duplicate readers.
 
 ## 3. API, RPC, and Command Sync
 - Frontend code must call backend capabilities through typed wrappers in
@@ -87,6 +91,10 @@ Tauri rules.
   relevant runtime probe scripts when available.
 - Gateway/protocol changes require targeted regression coverage for streaming,
   non-streaming, tools, and both supported OpenAI-style endpoints.
+- LabContext Provider changes: run
+  `python -m pytest -q labcontext-provider/tests`; document readers require
+  real HTML/PDF fixtures and must retain path, credential, size, page, timeout,
+  and response-budget boundaries.
 - If a validation step cannot run in the current environment, record the exact
   command and the reason it was not executed.
 

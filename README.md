@@ -15,7 +15,7 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
 | 目标 | CodexManager 提供什么 |
 | --- | --- |
 | 用熟悉的 ChatGPT 网页研究服务器或本机项目 | 通过独立 MCP 适配层和 Secure MCP Tunnel，将经过授权的对话工作流接入私有科研环境。 |
-| 复制路径就让 ChatGPT 查看文件 | 兼容 Provider 可通过 `inspect_path` 临时读取已授权根目录下的文件或有限目录树，无需先注册工作区。 |
+| 复制路径就让 ChatGPT 查看文件 | 可选 Provider 可通过 `inspect_path` 临时读取已授权根目录下的文本、HTML、文本型 PDF 或有限目录树，无需先注册工作区。 |
 | 不让服务器和管理接口暴露到公网 | 默认回环监听、受保护的 Web 壳、最小化工具策略与私有网络部署边界。 |
 | 连续推进而不是反复配置 | 集中管理 Codex 身份和额度信号，切换服务器凭据，并恢复本地会话。 |
 | 让模型围绕真实研究任务工作 | 管理 LabContext 工作区、模型可见资产、工具策略、分析任务和研究图。 |
@@ -97,9 +97,16 @@ Docker 部署需要把管理员 token 以只读方式挂入容器。请按 [服�
 原生目录选择器。快速配置见[统一 LabContext Router](docs/labcontext-router.md)，目录权限与两种
 UI 的差异见[本地工作区说明](docs/local-workspaces.md)。
 
-兼容 Provider 暴露 `inspect_path` 时，ChatGPT 可以直接读取 `registry.allowed_roots` 下的绝对路径，
-无需创建工作区。在 hybrid 模式下提示词应明确“本地”或“服务器”；工作区仍用于项目概述、证据、
-实验、研究图和长期会话衔接。
+仓库内的可选 [`labcontext-provider`](labcontext-provider/) 暴露 `inspect_path`，ChatGPT 可以直接读取
+`registry.allowed_roots` 下的绝对路径，无需创建工作区。Provider 0.8.0 支持安全文本、HTML 与文本型
+PDF；PDF 可按页续读和搜索，扫描件会明确提示需要 OCR。在 hybrid 模式下提示词应明确“本地”或
+“服务器”；工作区仍用于项目概述、证据、实验、研究图和长期会话衔接。
+
+Provider 与桌面端、服务器端保持解耦，可只安装在需要文件读取的一端：
+
+```bash
+LABCONTEXT_PROVIDER_PYTHON=python3.12 ./scripts/install-labcontext-provider.sh
+```
 
 ## 本地开发
 
@@ -133,6 +140,7 @@ crates/core/             SQLite 迁移、存储与认证基础
 crates/service/          本地服务、账户、会话与 LabContext 适配
 crates/web/              Web 运行壳和受保护的 RPC 代理
 crates/start/            all-in-one 启动器
+labcontext-provider/     可独立安装的只读 MCP Provider（含 HTML/PDF 路径直读）
 deploy/                  安全 Compose 与可选 LabContext 覆盖
 scripts/                 构建、发布、探测与可选 LabContext Router
 plugins/                 不含连接 ID 的 Codex 插件模板
