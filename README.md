@@ -51,6 +51,10 @@ CodexManager、Provider、Router、Tunnel 四个可独立验收的组件，因�
 - **账号与额度**：通过官方设备授权添加账号，显示实际生效身份、套餐信号与额度快照，并安全切换服务器上的 Codex 凭据。
   <img width="2358" height="1392" alt="image" src="https://github.com/user-attachments/assets/f197bd8d-97e6-45ba-ba54-9af31e89efdc" />
 - **用量分析与价格参考**：按账号保存每日 Credits、Token 与交互历史，提供趋势图、JSON/CSV 导出，并通过两份官方价格表交叉验证后给出非账单性质的 USD 参考金额。详见[用量分析说明](docs/usage-analytics.md)。
+  <img width="1195" height="390" alt="image" src="https://github.com/user-attachments/assets/c17a9177-a750-4f48-99ff-c79d43227386" />
+  <img width="1182" height="485" alt="image" src="https://github.com/user-attachments/assets/05e1b481-ffe0-4ded-80c6-ebe84711e62d" />
+  <img width="1182" height="455" alt="image" src="https://github.com/user-attachments/assets/6d02cfd2-1073-4c60-8166-3891f4436acf" />
+
 - **会话与恢复**：只读取 `state_5.sqlite` 元数据来搜索本地会话，生成 `codex resume` 命令；必要时对单个 provider 索引做可审计、可备份的修复。
   <img width="2366" height="1278" alt="image" src="https://github.com/user-attachments/assets/63e5a98a-f6b4-4fb9-8c10-37183dc9c444" />
 - **LabContext 工作区**：桌面版可在服务器与本地电脑之间切换，通过系统文件夹选择器安全登记本机项目；两端均可查看模型可见资产、管理工具策略、验证返回结果，并跟踪分析任务和研究图。详见[本地工作区](docs/local-workspaces.md)。
