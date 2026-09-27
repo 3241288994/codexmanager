@@ -19,7 +19,11 @@
 
 English: **Paste a path and let ChatGPT understand a project on your computer or server.** CodexManager connects authorized ChatGPT workflows to bounded, read-only project tools while keeping administration and credentials private.
 
-<!-- 宣传主图完成后放在这里。建议首屏只保留一张，内容聚焦“粘贴路径 → 目录 → 入口 → 项目解释”。 -->
+<p align="center">
+  <a href="docs/assets/codexmanager-promo-v1.png">
+    <img width="760" alt="CodexManager：贴一个路径，让 ChatGPT 读懂本机与服务器项目" src="docs/assets/codexmanager-promo-v1.png" />
+  </a>
+</p>
 
 ## 一眼看懂它怎么用
 
