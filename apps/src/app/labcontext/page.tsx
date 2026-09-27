@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LocationSwitcher } from "@/components/labcontext/location-switcher";
+import { ConnectionCenter } from "@/components/labcontext/connection-center";
 import { ResearchMapPanel } from "@/components/labcontext/research-map-panel";
 
 const HEALTH_LABELS: Record<LabContextHealthState, string> = {
@@ -120,14 +121,13 @@ export default function LabContextPage() {
       </header>
 
       {!isDesktopRuntime ? (
-        <div className="flex items-start gap-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm">
-          <Laptop className="mt-0.5 size-4 shrink-0 text-primary" />
-          <p className="text-muted-foreground">
-            {router.localAvailable
-              ? "已连接本机 LabContext Router；这个网页现在可以同时管理服务器与本机工作区。"
-              : "当前是 Web 控制台，可管理服务器项目；启动本机 labcontext 后，这里会自动解锁“本地电脑”。"}
-          </p>
-        </div>
+        <ConnectionCenter
+          status={router.data?.status}
+          error={router.error}
+          isLoading={router.isLoading}
+          isFetching={router.isFetching}
+          onRetry={() => { void router.refetch(); }}
+        />
       ) : null}
 
       {data?.toolPolicy.tools.some((tool) => tool.name === "inspect_path" && tool.enabled) ? <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm">

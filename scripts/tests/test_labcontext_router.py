@@ -6,13 +6,14 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
-from labcontext import ssh_command  # noqa: E402
+from labcontext import process_status, ssh_command  # noqa: E402
 from labcontext_router import (  # noqa: E402
     LabContextRouter,
     ProviderConfig,
@@ -55,7 +56,14 @@ class FakeLabContextHandler(BaseHTTPRequestHandler):
             return
         method = value.get("method")
         if method == "initialize":
-            self.reply({"jsonrpc": "2.0", "id": value.get("id"), "result": {}}, {"Mcp-Session-Id": "fake-session"})
+            self.reply({
+                "jsonrpc": "2.0",
+                "id": value.get("id"),
+                "result": {
+                    "protocolVersion": "2025-06-18",
+                    "serverInfo": {"name": "LabContext", "version": "0.7.0"},
+                },
+            }, {"Mcp-Session-Id": "fake-session"})
             return
         if method == "notifications/initialized":
             self.reply(None)
@@ -173,6 +181,23 @@ class RouterTest(unittest.TestCase):
         statuses = self.router.provider_status(probe=True)
         self.assertEqual([item["status"] for item in statuses], ["ready", "ready"])
         self.assertEqual([item["adminStatus"] for item in statuses], ["ready", "ready"])
+        self.assertEqual([item["serverVersion"] for item in statuses], ["0.7.0", "0.7.0"])
+        self.assertEqual([item["workspaceCount"] for item in statuses], [1, 1])
+
+    def test_provider_probe_rejects_an_incompatible_identity(self) -> None:
+        self.router.providers["local"].server_info = {"name": "Unexpected", "version": "9.0.0"}
+        self.router.providers["local"]._session_id = "fake-session"
+        statuses = self.router.provider_status(probe=True)
+        self.assertEqual(statuses[0]["status"], "unavailable")
+        self.assertIn("identity mismatch", statuses[0]["error"])
+
+    def test_connection_status_requires_capability_checks_not_only_ports(self) -> None:
+        with mock.patch.dict("os.environ", {"LABCONTEXT_ENABLE_TUNNEL": "0"}):
+            status = self.router.connection_status()
+        self.assertEqual(status["overall"], "ready")
+        self.assertEqual(status["router"]["version"], "0.3.0")
+        self.assertEqual(status["tunnel"]["status"], "disabled")
+        self.assertEqual({item["serverName"] for item in status["providers"]}, {"LabContext"})
 
     def test_downstream_session_delete_is_accepted(self) -> None:
         server = RouterServer(("127.0.0.1", 0), self.router)
@@ -186,12 +211,30 @@ class RouterTest(unittest.TestCase):
             )
             with urlopen(request, timeout=2) as response:
                 self.assertEqual(response.status, 204)
+            with urlopen(f"http://127.0.0.1:{server.server_port}/api/status", timeout=2) as response:
+                status = json.loads(response.read())
+                self.assertEqual(status["overall"], "ready")
+                self.assertEqual(status["router"]["name"], "LabContext Router")
         finally:
             server.shutdown()
             server.server_close()
 
 
 class LauncherTest(unittest.TestCase):
+    def test_failed_optional_component_reports_retry_state(self) -> None:
+        process = subprocess.Popen([sys.executable, "-c", "raise SystemExit(23)"])
+        process.wait(timeout=2)
+        status = process_status(
+            "SSH bridge",
+            process,
+            {"SSH bridge": 0},
+            {"SSH bridge": 10**12},
+            {"SSH bridge": 2},
+        )
+        self.assertEqual(status["status"], "retrying")
+        self.assertEqual(status["exitCode"], 23)
+        self.assertEqual(status["restartAttempts"], 2)
+
     def test_init_generates_decoupled_hybrid_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "config.toml"

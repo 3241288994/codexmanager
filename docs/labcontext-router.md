@@ -86,6 +86,20 @@ labcontext
 local Provider，可在 `launcher.env` 设置不经过 shell 展开的
 `LABCONTEXT_LOCAL_PROVIDER_COMMAND`。原有个人启动脚本可以保留，确认新 profile 可用后再停用。
 
+启动命令是幂等的：如果兼容的 Router 已经运行，它只会显示当前连接中心地址，不会再启动一套
+Provider、SSH、Router 和 Tunnel。可随时获取分层诊断：
+
+```bash
+labcontext status
+```
+
+`status` 不只检查端口，还会核对 Provider 身份与最低版本、执行 MCP 初始化、读取工具清单、调用一次
+`list_workspaces`，并检查管理接口、SSH 子进程和 Tunnel `/readyz`。启动器运行记录默认写入
+`~/.local/state/labcontext-router/launcher-status.json`，其中只包含 PID、状态和退出码，不包含命令行、
+token 或其他凭据。可用 `LABCONTEXT_STATUS_FILE`、`LABCONTEXT_TUNNEL_HEALTH_URL` 与
+`LABCONTEXT_DASHBOARD_URL` 调整对应地址。local Provider、SSH 或 Tunnel 异常退出时，Router 与连接
+中心会继续运行，启动器采用有上限的退避自动重试；因此可以看见真实错误，而不是整套服务反复消失。
+
 ## ChatGPT 中的调用方式
 
 兼容 Provider 暴露 `inspect_path` 时，可以直接粘贴绝对路径，无需注册工作区：
@@ -108,14 +122,17 @@ Router 会将 `source=local` 或 `source=server` 交给对应 Provider。hybrid 
 离线不会阻止另一个 Provider 的工作区被列出，返回结果会同时标记各来源状态。
 
 路径直读与工作区互不替代：前者适合临时查看，后者提供项目概述、证据索引、实验、研究图和
-Codex 会话衔接。旧 Provider 不提供 `inspect_path` 时，Router 会继续正常路由原有工作区工具。
+Codex 会话衔接。统一 Router 要求 Provider 至少为 `0.7.0`，并且提供 `list_workspaces` 与
+`inspect_path`；不兼容的 Provider 会明确显示为不可用，不会仅因端口可连接而被误判为正常。
 
 ## Web 控制台
 
 浏览器打开 `http://127.0.0.1:48761/labcontext/` 时会探测
-`http://127.0.0.1:1460/api/providers`。如果 `local` Provider 的 MCP 和 admin 都可用，页面会自动
-解锁“本地电脑”；不需要切换到 Tauri 桌面版。桌面版仍保留原生目录选择器，Web 版则要求填写
-运行 local Provider 的电脑能够访问的绝对路径。
+`http://127.0.0.1:1460/api/status`。页面内置的连接中心分别显示 Router、Provider、SSH 子进程和
+OpenAI Tunnel：全部通过后自动收起并进入正常工作区界面，出现降级或失败时保持展开，支持重新检测
+和复制脱敏诊断。如果 `local` Provider 的 MCP 和 admin 都可用，页面会自动解锁“本地电脑”；
+不需要切换到 Tauri 桌面版。桌面版仍保留原生目录选择器，Web 版则要求填写运行 local Provider
+的电脑能够访问的绝对路径。
 
 如果 CodexManager Web 使用了其他 Origin，必须把精确 Origin 加入 `cors_origins` 后重启
 Router。不要使用通配 Origin，也不要把 `1460`、Provider 的 `/admin` 或 token 暴露到局域网或
@@ -125,9 +142,12 @@ Router。不要使用通配 Origin，也不要把 `1460`、Provider 的 `/admin`
 
 ```bash
 labcontext doctor
+labcontext status
 curl -fsS http://127.0.0.1:1460/healthz
+curl -fsS http://127.0.0.1:1460/api/status
 ```
 
-健康响应会分别显示 `local` / `server` 的 MCP `status` 与 `adminStatus`。常见问题是 Provider
-未启动、SSH 转发端口冲突、admin token 文件路径错误，或 Tunnel profile 仍指向旧的
-`1455/mcp`。
+`/healthz` 用于 Router 存活检查，`/api/status` 才是完整就绪诊断。后者会分别显示 `local` /
+`server` 的身份、版本、MCP、真实工具调用与 `adminStatus`，并报告启动器子进程和 Tunnel 状态。
+常见问题是 Provider 未启动或版本过旧、SSH 转发端口冲突、admin token 文件路径错误，或 Tunnel
+profile 仍指向旧的 `1455/mcp`。

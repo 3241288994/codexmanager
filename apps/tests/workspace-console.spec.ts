@@ -126,18 +126,32 @@ async function mockConsoleApi(page: Page, localRouter = false) {
   const methods: string[] = [];
   await page.route("http://127.0.0.1:1460/**", async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === "/api/providers") {
+    if (url.pathname === "/api/status") {
+      const providers = localRouter ? [{
+        id: "local",
+        label: "This computer",
+        mcpUrl: "http://127.0.0.1:1456/mcp",
+        adminEnabled: true,
+        status: "ready",
+        adminStatus: "ready",
+        serverName: "LabContext",
+        serverVersion: "0.7.0",
+        minimumVersion: "0.7.0",
+        protocolVersion: "2025-06-18",
+        toolCount: 12,
+        workspaceCount: 1,
+        latencyMs: 8,
+      }] : [];
       await route.fulfill({
         contentType: "application/json; charset=utf-8",
         body: JSON.stringify({
-          providers: localRouter ? [{
-            id: "local",
-            label: "This computer",
-            mcpUrl: "http://127.0.0.1:1456/mcp",
-            adminEnabled: true,
-            status: "ready",
-            adminStatus: "ready",
-          }] : [],
+          schemaVersion: 1,
+          checkedAt: new Date().toISOString(),
+          overall: localRouter ? "ready" : "unavailable",
+          router: { status: "ready", name: "LabContext Router", version: "0.3.0", pid: 1234 },
+          launcher: { status: "running", launcherPid: 1233, components: [] },
+          providers,
+          tunnel: { enabled: false, status: "disabled", detail: "未启用 Secure MCP Tunnel" },
         }),
       });
       return;
@@ -168,7 +182,7 @@ async function mockConsoleApi(page: Page, localRouter = false) {
     const request = route.request();
     const body = JSON.parse(request.postData() || "{}");
     methods.push(body.method);
-    const result = {
+    const responses: Record<string, unknown> = {
       "appSettings/get": settings,
       initialize: {
         userAgent: "codex_cli_rs/0.1.0",
@@ -275,7 +289,8 @@ async function mockConsoleApi(page: Page, localRouter = false) {
       },
       "labcontext/overview": labContextOverview,
       "labcontext/getResearchMap": researchMapBundle,
-    }[body.method] ?? {};
+    };
+    const result = responses[body.method] ?? {};
     await route.fulfill({
       contentType: "application/json; charset=utf-8",
       body: JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result }),
@@ -304,7 +319,7 @@ test("the maintained account, analytics, session, and LabContext routes load thr
   await expect(page.getByRole("heading", { name: "让 ChatGPT 读懂你的项目" })).toBeVisible();
   await expect(page.getByText("路径直读无需注册：")).toBeVisible();
   await expect(page.getByRole("button", { name: "本地电脑" }).first()).toBeDisabled();
-  await expect(page.getByText("当前是 Web 控制台，可管理服务器项目")).toBeVisible();
+  await expect(page.getByText("LabContext 连接需要处理", { exact: true })).toBeVisible();
   await expect(page.getByText("Example Research", { exact: true })).toBeVisible();
   await expect(page.getByText("模型可见工具", { exact: true })).toBeVisible();
 
@@ -333,7 +348,7 @@ test("the Web console unlocks local workspaces when the loopback Router is ready
   await mockConsoleApi(page, true);
   await page.goto("/labcontext/");
 
-  await expect(page.getByText("已连接本机 LabContext Router")).toBeVisible();
+  await expect(page.getByText("LabContext 已完全连通")).toBeVisible();
   const localButton = page.getByRole("button", { name: "本地电脑" }).first();
   await expect(localButton).toBeEnabled();
   await localButton.click();

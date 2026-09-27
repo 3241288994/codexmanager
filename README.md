@@ -43,6 +43,7 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
   <img width="2382" height="1184" alt="image" src="https://github.com/user-attachments/assets/aac5d7cf-b728-4936-96f3-a78aec1813c4" />
   <img width="2338" height="1240" alt="image" src="https://github.com/user-attachments/assets/b280447d-9625-42e3-96cc-4ea0c8a9b237" />
 - **路径直读**：在 ChatGPT 中粘贴本机或服务器绝对路径即可临时查看文件或有限目录树；工作区改为可选的长期项目模式。Provider 仍通过 `registry.allowed_roots` 控制可访问根目录。
+- **可验证的连接中心**：网页逐层检查 Router、Provider 身份与版本、真实 MCP 调用、SSH 子进程和 OpenAI Tunnel；端口已占用不再被误判为连接成功，异常时可直接复制脱敏诊断。
 
 ## 重要边界
 

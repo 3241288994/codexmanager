@@ -12,6 +12,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -31,8 +32,12 @@ except ModuleNotFoundError:  # Python 3.9/3.10 compatibility
 
 
 PROTOCOL_VERSION = "2025-06-18"
+ROUTER_VERSION = "0.3.0"
 DEFAULT_LISTEN_ADDR = "127.0.0.1:1460"
 DEFAULT_CONFIG_PATH = Path("~/.config/labcontext/config.toml").expanduser()
+DEFAULT_STATUS_PATH = Path("~/.local/state/labcontext-router/launcher-status.json").expanduser()
+DEFAULT_TUNNEL_HEALTH_URL = "http://127.0.0.1:8080"
+REQUIRED_PROVIDER_TOOLS = {"inspect_path", "list_workspaces"}
 NON_WORKSPACE_TOOLS = {"list_workspaces", "get_job", "inspect_path"}
 ADMIN_OPERATIONS: dict[str, tuple[str, str]] = {
     "overview": ("GET", "overview"),
@@ -163,6 +168,7 @@ class ProviderConfig:
     admin_token_file: str | None = None
     enabled: bool = True
     timeout_seconds: float = 20.0
+    minimum_version: str = "0.7.0"
 
 
 @dataclass
@@ -209,6 +215,7 @@ def load_config(path: Path) -> RouterConfig:
             admin_token_file=str(source.get("admin_token_file") or "") or None,
             enabled=bool(source.get("enabled", True)),
             timeout_seconds=float(source.get("timeout_seconds", 20)),
+            minimum_version=str(source.get("minimum_version") or "0.7.0"),
         ))
     if not any(provider.enabled for provider in config.providers):
         raise RouterError("at least one provider must be enabled")
@@ -221,6 +228,8 @@ class UpstreamMcp:
         self._session_id: str | None = None
         self._lock = threading.RLock()
         self._opener = build_opener(ProxyHandler({}))
+        self.server_info: dict[str, Any] = {}
+        self.protocol_version: str | None = None
 
     def _request(self, payload: dict[str, Any], session: str | None = None) -> tuple[dict[str, Any], Any]:
         headers = {
@@ -266,6 +275,9 @@ class UpstreamMcp:
         response_record = _as_dict(response)
         if response_record.get("error"):
             raise RouterError(f"provider {self.config.id} initialization failed: {response_record['error']}")
+        result = _as_dict(response_record.get("result"))
+        self.server_info = _as_dict(result.get("serverInfo"))
+        self.protocol_version = str(result.get("protocolVersion") or "") or None
         self._session_id = headers.get("mcp-session-id") or headers.get("Mcp-Session-Id")
         if not self._session_id:
             raise RouterError(f"provider {self.config.id} did not return an MCP session id")
@@ -312,6 +324,20 @@ class LabContextRouter:
         self._cache_lock = threading.Lock()
         self._opener = build_opener(ProxyHandler({}))
 
+    @staticmethod
+    def _version_tuple(value: str) -> tuple[int, ...] | None:
+        match = re.match(r"^v?(\d+(?:\.\d+)*)", value.strip())
+        return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+    @classmethod
+    def _version_is_compatible(cls, actual: str, minimum: str) -> bool:
+        actual_parts = cls._version_tuple(actual)
+        minimum_parts = cls._version_tuple(minimum)
+        if actual_parts is None or minimum_parts is None:
+            return False
+        width = max(len(actual_parts), len(minimum_parts))
+        return actual_parts + (0,) * (width - len(actual_parts)) >= minimum_parts + (0,) * (width - len(minimum_parts))
+
     def provider_status(self, probe: bool = False) -> list[dict[str, Any]]:
         with self._cache_lock:
             if probe and self._status_cache and time.monotonic() - self._status_cache[0] < 5:
@@ -325,14 +351,50 @@ class LabContextRouter:
                 "adminEnabled": bool(provider.config.admin_url),
                 "status": "configured",
                 "adminStatus": "configured" if provider.config.admin_url else "disabled",
+                "minimumVersion": provider.config.minimum_version,
             }
             if probe:
+                started = time.monotonic()
                 try:
-                    provider.call("tools/list", {})
+                    tool_result = provider.call("tools/list", {})
+                    tools = [
+                        _as_dict(item) for item in tool_result.get("tools", [])
+                        if isinstance(item, dict)
+                    ]
+                    tool_names = {str(item.get("name") or "") for item in tools}
+                    server_name = str(provider.server_info.get("name") or "")
+                    server_version = str(provider.server_info.get("version") or "")
+                    missing_tools = sorted(REQUIRED_PROVIDER_TOOLS - tool_names)
+                    status.update({
+                        "serverName": server_name or None,
+                        "serverVersion": server_version or None,
+                        "protocolVersion": provider.protocol_version,
+                        "toolCount": len(tool_names),
+                        "missingTools": missing_tools,
+                    })
+                    if server_name != "LabContext":
+                        raise RouterError(
+                            f"provider {provider.config.id} identity mismatch: expected LabContext, got {server_name or 'unknown'}"
+                        )
+                    if not self._version_is_compatible(server_version, provider.config.minimum_version):
+                        raise RouterError(
+                            f"provider {provider.config.id} version {server_version or 'unknown'} is older than required {provider.config.minimum_version}"
+                        )
+                    if missing_tools:
+                        raise RouterError(
+                            f"provider {provider.config.id} is missing required tools: {', '.join(missing_tools)}"
+                        )
+                    workspace_result = provider.call("tools/call", {
+                        "name": "list_workspaces",
+                        "arguments": {},
+                    })
+                    workspace_payload = self._workspace_payload(workspace_result)
+                    status["workspaceCount"] = len(workspace_payload.get("workspaces", []))
                     status["status"] = "ready"
                 except RouterError as exc:
                     status["status"] = "unavailable"
                     status["error"] = str(exc)
+                status["latencyMs"] = round((time.monotonic() - started) * 1000)
                 if provider.config.admin_url:
                     try:
                         self.admin_call(provider.config.id, "overview", {})
@@ -345,6 +407,91 @@ class LabContextRouter:
             with self._cache_lock:
                 self._status_cache = (time.monotonic(), copy.deepcopy(statuses))
         return statuses
+
+    @staticmethod
+    def _process_is_alive(pid: Any) -> bool:
+        if not isinstance(pid, int) or pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _launcher_status(self) -> dict[str, Any]:
+        path = Path(os.environ.get("LABCONTEXT_STATUS_FILE", str(DEFAULT_STATUS_PATH))).expanduser()
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"status": "unknown", "detail": "未发现启动器运行记录"}
+        if not isinstance(value, dict):
+            return {"status": "unknown", "detail": "启动器运行记录格式无效"}
+        pid = value.get("launcherPid")
+        value["status"] = "running" if self._process_is_alive(pid) else "stale"
+        if value["status"] == "stale":
+            value["detail"] = "启动器进程已经退出；当前端口可能来自遗留进程"
+        return value
+
+    def _tunnel_status(self) -> dict[str, Any]:
+        if os.environ.get("LABCONTEXT_ENABLE_TUNNEL", "").strip().lower() not in {"1", "true", "yes", "on"}:
+            return {"enabled": False, "status": "disabled", "detail": "未启用 Secure MCP Tunnel"}
+        base = os.environ.get("LABCONTEXT_TUNNEL_HEALTH_URL", DEFAULT_TUNNEL_HEALTH_URL).rstrip("/")
+        started = time.monotonic()
+        request = Request(f"{base}/readyz", headers={"Accept": "text/plain"}, method="GET")
+        try:
+            response = self._opener.open(request, timeout=2)
+            detail = response.read(256).decode("utf-8", errors="replace").strip()
+            return {
+                "enabled": True,
+                "status": "ready" if response.status == 200 else "unavailable",
+                "detail": detail or f"HTTP {response.status}",
+                "latencyMs": round((time.monotonic() - started) * 1000),
+            }
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            return {
+                "enabled": True,
+                "status": "unavailable",
+                "detail": str(exc),
+                "latencyMs": round((time.monotonic() - started) * 1000),
+            }
+
+    def connection_status(self) -> dict[str, Any]:
+        providers = self.provider_status(probe=True)
+        launcher = self._launcher_status()
+        tunnel = self._tunnel_status()
+        provider_ready = [item.get("status") == "ready" and item.get("adminStatus") in {"ready", "disabled"} for item in providers]
+        component_failures = any(
+            item.get("status") not in {"running", "ready"}
+            for item in launcher.get("components", [])
+            if isinstance(item, dict)
+        )
+        all_ready = bool(provider_ready) and all(provider_ready)
+        if tunnel.get("enabled"):
+            all_ready = all_ready and tunnel.get("status") == "ready"
+        if launcher.get("status") == "running" and component_failures:
+            all_ready = False
+        if launcher.get("status") == "stale":
+            all_ready = False
+        if all_ready:
+            overall = "ready"
+        elif any(provider_ready):
+            overall = "degraded"
+        else:
+            overall = "unavailable"
+        return {
+            "schemaVersion": 1,
+            "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "overall": overall,
+            "router": {
+                "status": "ready",
+                "name": "LabContext Router",
+                "version": ROUTER_VERSION,
+                "pid": os.getpid(),
+            },
+            "launcher": launcher,
+            "providers": providers,
+            "tunnel": tunnel,
+        }
 
     def _tools(self, force: bool = False) -> tuple[list[dict[str, Any]], dict[str, set[str]]]:
         with self._cache_lock:
@@ -661,7 +808,7 @@ class LabContextRouter:
 
 
 class RouterHandler(BaseHTTPRequestHandler):
-    server_version = "LabContextRouter/0.2"
+    server_version = f"LabContextRouter/{ROUTER_VERSION}"
 
     @property
     def router(self) -> LabContextRouter:
@@ -725,6 +872,9 @@ class RouterHandler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/providers":
                 self._json(HTTPStatus.OK, {"providers": self.router.provider_status(probe=True)})
+                return
+            if self.path == "/api/status":
+                self._json(HTTPStatus.OK, self.router.connection_status())
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
         except RouterError as exc:

@@ -87,6 +87,11 @@ tunnel-client run --profile codexmanager-local
 [统一 LabContext Router](labcontext-router.md)，完整插件步骤与公开边界见
 [OpenAI 插件与 Secure MCP Tunnel](open-source/03-openai-plugin-and-tunnel.md)。
 
+日常运行时直接打开 `http://127.0.0.1:48761/labcontext/`。页面连接中心只有在 Provider 身份、
+最低版本、工具清单、一次真实 `list_workspaces` 调用、SSH 子进程和 Tunnel 就绪检查均通过后，
+才显示“完全可用”。命令行可用 `labcontext status` 输出同一份诊断；重复执行 `labcontext` 不会
+再启动第二套进程。
+
 ## 安全边界
 
 - 本地管理命令不映射到服务器 Web RPC；可选 Router 只在浏览器所在电脑的 IPv4 回环地址提供
