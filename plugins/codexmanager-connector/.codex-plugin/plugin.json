@@ -1,7 +1,7 @@
 {
   "name": "codexmanager-connector",
   "version": "0.1.0",
-  "description": "Set up and verify a private CodexManager deployment without exposing its administration plane.",
+  "description": "Let ChatGPT understand authorized projects from a local or server path without exposing the administration plane.",
   "author": {
     "name": "CodexManager contributors"
   },
@@ -10,14 +10,14 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "CodexManager Connector",
-    "shortDescription": "Configure and verify a private CodexManager deployment.",
-    "longDescription": "Guides safe local client setup and deployment checks. This public template does not include an MCP connection.",
+    "shortDescription": "Paste a local or server path and understand the project.",
+    "longDescription": "Guides safe CodexManager, LabContext Provider, Router, and Tunnel setup for bounded project inspection. This public template contains no private MCP connection.",
     "developerName": "CodexManager contributors",
     "category": "Productivity",
     "capabilities": ["Guidance"],
     "defaultPrompt": [
-      "Help me connect Codex CLI to my CodexManager server.",
-      "Check my CodexManager deployment without exposing admin APIs."
+      "Set up CodexManager so ChatGPT can inspect an authorized local or server project path.",
+      "Verify path inspection end to end without exposing admin APIs."
     ]
   }
 }

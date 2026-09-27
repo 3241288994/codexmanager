@@ -1,38 +1,99 @@
-# CodexManager
+# 贴一个路径，让 ChatGPT 读懂你的本机和服务器项目
 
-> **让 ChatGPT 网页版成为服务器项目的智能入口。**
->
-> 在不把服务器直接暴露到公网的前提下，把已获授权的 ChatGPT 工作流带进远端项目：理解工作区、调用受限工具、推进研究任务。Codex 额度管理、服务器账号一键切换和会话恢复，则为持续研究提供配套保障。
+<p align="center">
+  <strong>CodexManager · 从一个绝对路径开始的本机 / 服务器项目理解入口</strong>
+</p>
 
-**完整接入路径：** `ChatGPT 网页版` → `Secure MCP Tunnel` → `独立、受审计的 MCP 适配层` → `CodexManager / LabContext` → `科研服务器`
+<p align="center">
+  <a href="https://github.com/3241288994/codexmanager/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/3241288994/codexmanager/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-22c55e.svg" /></a>
+  <img alt="LabContext Provider 0.8.0" src="https://img.shields.io/badge/LabContext-Provider%200.8.0-6366f1.svg" />
+</p>
 
-[交给 Agent 安装](INSTALL.md) · [部署到服务器](docs/open-source/01-server-deployment.md) · [连接 ChatGPT](docs/open-source/03-openai-plugin-and-tunnel.md) · [本地工作区](docs/local-workspaces.md) · [安全边界](#重要边界)
+复制一个本机或服务器绝对路径，ChatGPT 就能在你授权的范围内查看目录、找到入口文件、继续读取
+关键代码与文档，并解释整个项目是做什么的——无需先上传项目，也无需先注册工作区。
 
-English: **Bring authorized ChatGPT web workflows to server-side research projects.** CodexManager is a secure, local-first operations layer; connect ChatGPT through a separate reviewed MCP adapter and Secure MCP Tunnel, then manage the server-side research workflow from one place.
+> **一句话卖点：把路径贴给 ChatGPT，让它直接读懂你电脑和服务器上的真实项目。**
 
-## 概述
+[交给 Agent 安装](INSTALL.md) · [路径直读与工作区](docs/local-workspaces.md) · [连接 ChatGPT](docs/open-source/03-openai-plugin-and-tunnel.md) · [服务器部署](docs/open-source/01-server-deployment.md)
 
-| 目标 | CodexManager 提供什么 |
+English: **Paste a path and let ChatGPT understand a project on your computer or server.** CodexManager connects authorized ChatGPT workflows to bounded, read-only project tools while keeping administration and credentials private.
+
+<!-- 宣传主图完成后放在这里。建议首屏只保留一张，内容聚焦“粘贴路径 → 目录 → 入口 → 项目解释”。 -->
+
+## 一眼看懂它怎么用
+
+下面是一段典型流程。路径只是示例，实际可使用你已经授权的本机或服务器目录。
+
+```text
+你：
+请读取服务器上的 /srv/research/web-agent，先看目录，再找到入口文件，告诉我这个项目怎么运行。
+
+ChatGPT：
+✓ 已确认来源：服务器
+✓ 已读取两层目录：README.md、pyproject.toml、src/、tests/、configs/
+✓ 找到主要入口：src/main.py
+✓ 继续检查 README.md、pyproject.toml 与入口模块
+
+这是一个用于网页任务规划与执行的 Agent 项目：
+- src/main.py 负责启动任务和加载配置
+- src/agent/ 保存规划、动作选择与错误恢复逻辑
+- configs/ 定义模型、浏览器环境和实验参数
+- tests/ 覆盖页面解析与任务执行
+
+建议先从 README.md 的 Quick Start 启动，再查看 configs/default.yaml。
+```
+
+这个过程由四步组成：
+
+| 你做什么 | ChatGPT 做什么 |
 | --- | --- |
-| 用熟悉的 ChatGPT 网页研究服务器或本机项目 | 通过独立 MCP 适配层和 Secure MCP Tunnel，将经过授权的对话工作流接入私有科研环境。 |
-| 复制路径就让 ChatGPT 查看文件 | 可选 Provider 可通过 `inspect_path` 临时读取已授权根目录下的文本、HTML、文本型 PDF 或有限目录树，无需先注册工作区。 |
-| 不让服务器和管理接口暴露到公网 | 默认回环监听、受保护的 Web 壳、最小化工具策略与私有网络部署边界。 |
-| 连续推进而不是反复配置 | 集中管理 Codex 身份和额度信号，切换服务器凭据，并恢复本地会话。 |
-| 让模型围绕真实研究任务工作 | 管理 LabContext 工作区、模型可见资产、工具策略、分析任务和研究图。 |
+| 1. 粘贴绝对路径 | 判断它来自本机还是服务器，并交给正确的 Provider |
+| 2. 要求“先看目录” | 返回有限深度的目录树，不把整个项目塞进上下文 |
+| 3. 要求“找到入口” | 按需读取 README、依赖配置和候选入口文件 |
+| 4. 继续追问 | 解释模块关系、运行方法、研究目标，或固定为长期工作区 |
 
-## 三步接入 ChatGPT
+你也可以直接这样问：
 
-1. **部署 CodexManager。** 先按[服务器部署说明](docs/open-source/01-server-deployment.md)在私有网络中启动服务并验证登录。
-2. **准备 MCP 适配层。** 它应只提供经过筛选、低权限且有输入 schema 的科研工具；不要把管理 RPC 或 SSH 转发当作 MCP 服务。
-3. **创建 Tunnel 并在 ChatGPT 添加连接。** 在 OpenAI Platform 创建 Secure MCP Tunnel，在服务器运行 `tunnel-client`，随后在 ChatGPT Developer mode 的 Plugins 中选择该 Tunnel。详细的权限、命令、安全要求和排障步骤见 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)。
-<img width="1356" height="1190" alt="image" src="https://github.com/user-attachments/assets/2a9e0882-cd8d-42f0-887b-96725140550e" />
+```text
+请查看本地电脑的 /Users/me/Documents/project，找到入口文件并解释项目结构。
+请读取服务器 /srv/research/paper-a/README.md，总结当前研究目标与运行方法。
+请在服务器 /srv/research/experiments 下列出两层目录，并比较两个实验的结果文件。
+```
 
-> **从这里开始：** 若你已拥有可用的 MCP 适配层，直接阅读 [Tunnel 与插件完整教程](docs/open-source/03-openai-plugin-and-tunnel.md)；若还没有，应先实现并审计适配层，再连接 ChatGPT。
+## 本机、服务器，或者两边一起
+
+| 模式 | 能访问什么 | 适合谁 |
+| --- | --- | --- |
+| `local` | 本机明确授权的目录 | 代码、论文和资料都在个人电脑上 |
+| `server` | SSH 后面的服务器授权目录 | 主要在科研服务器、工作站或私有云工作 |
+| `hybrid`（推荐） | 同一个 ChatGPT 连接中的本机 + 服务器 | 本机写作、服务器训练，希望上下文连贯 |
+
+两端完全解耦：只需要本机就不必安装服务器组件，只需要服务器也不必开放本机文件。访问范围始终由
+各端 Provider 的 `registry.allowed_roots` 控制；根目录、凭据、隐藏密钥和不支持的二进制不会因为
+贴了路径就自动开放。
+
+## 两种使用方式
+
+### 路径直读：临时、快速、零注册
+
+`inspect_path` 适合“现在帮我看看这个目录/文件”。Provider 0.8.0 支持：
+
+- 有限深度目录树；
+- 安全文本和源代码；
+- HTML 可见正文，不加载外部资源；
+- 文本型 PDF 的分页读取与搜索；
+- 扫描型 PDF 的明确 OCR 提示，而不是猜测内容。
+
+### 工作区：长期项目上下文
+
+需要持续研究时，再把路径固定为工作区。工作区可以维护项目概述、证据索引、实验结果、研究图、
+分析任务和最近 Codex 会话衔接。路径直读与工作区共用同一套目录授权，但互不强制：先读懂，再决定
+是否长期管理。
 
 ## 最省事的安装方式：交给 Agent
 
-不需要把整篇部署文档复制进对话。告诉 Agent 安装模式和允许访问的目录，让它先读取仓库根目录的
-[`INSTALL.md`](INSTALL.md)，即可按固定检查点完成安装、保留已有配置并给出验收报告：
+不用逐行复制部署命令。把下面内容交给能操作目标电脑和服务器的编码 Agent：
 
 ```text
 请安装 https://github.com/3241288994/codexmanager ，模式为 hybrid。
@@ -41,95 +102,98 @@ English: **Bring authorized ChatGPT web workflows to server-side research projec
 沿用已有 SSH 配置和密钥，不在对话或日志中输出凭据。只有必须由我在 OpenAI 页面完成时再通知我。
 ```
 
-只使用本机时把模式改为 `local` 并删去服务器信息；只使用服务器时改为 `server`。教程将安装拆成
-CodexManager、Provider、Router、Tunnel 四个可独立验收的组件，因此不需要为了少装一端而修改源码。
+只使用一端时把模式改为 `local` 或 `server`。[`INSTALL.md`](INSTALL.md) 定义了只读盘点、备份、
+组件安装、人工授权检查点与真实调用验收，Agent 不应把“端口已打开”误报成“已经完全连通”。
 
-## 核心能力
+## 它是如何连接起来的
 
-- **ChatGPT 项目接入**：将已获授权的 ChatGPT 网页工作流接入私有网络边界内的服务器项目，让对话、工作区与工具策略围绕同一任务协作。
-  <img width="1682" height="812" alt="image" src="https://github.com/user-attachments/assets/27f83e5e-67a3-4a74-aeec-398cc4647539" />
-- **账号与额度**：通过官方设备授权添加账号，显示实际生效身份、套餐信号与额度快照，并安全切换服务器上的 Codex 凭据。
-  <img width="2358" height="1392" alt="image" src="https://github.com/user-attachments/assets/f197bd8d-97e6-45ba-ba54-9af31e89efdc" />
-- **用量分析与价格参考**：按账号保存每日 Credits、Token 与交互历史，提供趋势图、JSON/CSV 导出，并通过两份官方价格表交叉验证后给出非账单性质的 USD 参考金额。详见[用量分析说明](docs/usage-analytics.md)。
-  <img width="1195" height="390" alt="image" src="https://github.com/user-attachments/assets/c17a9177-a750-4f48-99ff-c79d43227386" />
-  <img width="1182" height="485" alt="image" src="https://github.com/user-attachments/assets/05e1b481-ffe0-4ded-80c6-ebe84711e62d" />
-  <img width="1182" height="455" alt="image" src="https://github.com/user-attachments/assets/6d02cfd2-1073-4c60-8166-3891f4436acf" />
+日常使用只需要记住 `labcontext`；下面的组件可以分别安装、升级和替换：
 
-- **会话与恢复**：只读取 `state_5.sqlite` 元数据来搜索本地会话，生成 `codex resume` 命令；必要时对单个 provider 索引做可审计、可备份的修复。
-  <img width="2366" height="1278" alt="image" src="https://github.com/user-attachments/assets/63e5a98a-f6b4-4fb9-8c10-37183dc9c444" />
-- **LabContext 工作区**：桌面版可在服务器与本地电脑之间切换，通过系统文件夹选择器安全登记本机项目；两端均可查看模型可见资产、管理工具策略、验证返回结果，并跟踪分析任务和研究图。详见[本地工作区](docs/local-workspaces.md)。
-  <img width="2434" height="996" alt="image" src="https://github.com/user-attachments/assets/fc8eb835-e473-4a34-a8c9-831898cfbd7f" />
-  <img width="2382" height="1184" alt="image" src="https://github.com/user-attachments/assets/aac5d7cf-b728-4936-96f3-a78aec1813c4" />
-  <img width="2338" height="1240" alt="image" src="https://github.com/user-attachments/assets/b280447d-9625-42e3-96cc-4ea0c8a9b237" />
-- **路径直读**：在 ChatGPT 中粘贴本机或服务器绝对路径即可临时查看文件或有限目录树；工作区改为可选的长期项目模式。Provider 仍通过 `registry.allowed_roots` 控制可访问根目录。
-- **可验证的连接中心**：网页逐层检查 Router、Provider 身份与版本、真实 MCP 调用、SSH 子进程和 OpenAI Tunnel；端口已占用不再被误判为连接成功，异常时可直接复制脱敏诊断。
+```text
+ChatGPT 网页版
+      │
+      ▼
+Secure MCP Tunnel
+      │
+      ▼
+LabContext Router · 127.0.0.1:1460/mcp
+      ├── local Provider  ── 本机授权目录
+      └── server Provider ── SSH bridge ── 服务器授权目录
+
+CodexManager Web · 127.0.0.1:48761
+      └── 连接中心 / 工作区 / 研究图 / 用量与会话管理
+```
+
+- **Provider** 负责受限、只读地理解文件与项目；
+- **Router** 把本机与服务器组合成一个稳定 MCP 工具面；
+- **Tunnel** 让 ChatGPT 在无需开放入站公网端口的情况下访问 Router；
+- **CodexManager** 提供连接诊断、工作区管理，以及 Codex 账号、额度、用量与会话辅助能力。
+
+完整端口、SSH、Tunnel 和故障排查见[统一 LabContext Router](docs/labcontext-router.md)。
+
+## 不只是路径读取
+
+路径直读是主入口，下面这些能力为长期研究提供配套：
+
+- **可验证的连接中心**：逐层检查 Router、Provider 身份与版本、真实 MCP 调用、SSH 子进程和 Tunnel；端口占用不会被误判为成功。
+- **项目工作区**：管理模型可见资产、工具策略、项目概述、证据、实验、分析任务与研究图。
+- **账号与额度**：通过官方设备授权添加账号，显示实际生效身份、套餐信号与额度快照，并切换服务器 Codex 凭据。
+- **用量分析**：保存 Credits、Token 与交互历史，提供趋势图、JSON/CSV 导出和非账单性质的 USD 参考估算。
+- **会话恢复**：读取 `state_5.sqlite` 元数据搜索本地会话并生成 `codex resume` 命令，不导出原始对话。
+
+## 界面预览
+
+### 工作区与连接中心
+
+<img width="1682" height="812" alt="CodexManager 工作区与连接中心" src="https://github.com/user-attachments/assets/27f83e5e-67a3-4a74-aeec-398cc4647539" />
+
+<details>
+<summary>查看更多界面：工作区、研究图、账号、用量与会话</summary>
+
+#### 工作区与研究图
+
+<img width="2434" height="996" alt="工作区列表" src="https://github.com/user-attachments/assets/fc8eb835-e473-4a34-a8c9-831898cfbd7f" />
+<img width="2382" height="1184" alt="工作区详情" src="https://github.com/user-attachments/assets/aac5d7cf-b728-4936-96f3-a78aec1813c4" />
+<img width="2338" height="1240" alt="研究图" src="https://github.com/user-attachments/assets/b280447d-9625-42e3-96cc-4ea0c8a9b237" />
+
+#### 账号与额度
+
+<img width="2358" height="1392" alt="账号与额度" src="https://github.com/user-attachments/assets/f197bd8d-97e6-45ba-ba54-9af31e89efdc" />
+
+#### 用量分析
+
+<img width="1195" height="390" alt="用量分析概览" src="https://github.com/user-attachments/assets/c17a9177-a750-4f48-99ff-c79d43227386" />
+<img width="1182" height="485" alt="用量趋势" src="https://github.com/user-attachments/assets/05e1b481-ffe0-4ded-80c6-ebe84711e62d" />
+<img width="1182" height="455" alt="价格参考" src="https://github.com/user-attachments/assets/6d02cfd2-1073-4c60-8166-3891f4436acf" />
+
+#### 会话恢复
+
+<img width="2366" height="1278" alt="会话恢复" src="https://github.com/user-attachments/assets/63e5a98a-f6b4-4fb9-8c10-37183dc9c444" />
+
+</details>
 
 ## 重要边界
 
-- 默认部署仅监听服务器回环地址；管理 RPC、数据库、账号令牌和 LabContext 管理令牌不应公开。
-- 当前公开版**不提供 MCP `/mcp` endpoint，也不暴露 OpenAI 兼容 `/v1` 网关**。`plugins/codexmanager-connector` 是安全部署与连接指引模板，不会把管理 RPC 冒充 MCP。
-- Secure MCP Tunnel 仅适合私有开发连接；公开 MCP/插件需要独立、经过审计的 HTTPS MCP 服务、逐用户授权和滥用防护。详见 [Tunnel 与插件说明](docs/open-source/03-openai-plugin-and-tunnel.md)。
-- 请只使用你有权使用的 OpenAI、Codex 和 LabContext 账号与服务，并遵守其适用条款。
+- 只有 `registry.allowed_roots` 下经过验证的路径可读；目录深度、条目数、文件大小、PDF 页数和单次响应均有限制。
+- 默认部署只监听回环地址；数据库、管理 RPC、账号令牌和 LabContext admin token 不应公开。
+- CodexManager service 本身不是 MCP endpoint；ChatGPT 连接的是独立 Router 的 `/mcp`，不是 `/api/rpc`、`/rpc` 或 `/admin`。
+- 当前公开版不提供公共 OpenAI 兼容 `/v1` 网关。Secure MCP Tunnel 适合私有连接和开发测试，不是公共插件分发机制。
+- 请只读取你有权访问的本机和服务器目录，并遵守 OpenAI、Codex 与目标项目的适用条款。
 
-## 快速开始：安全自托管
+详细边界见 [SECURITY.md](SECURITY.md) 和 [OpenAI 插件与 Tunnel 说明](docs/open-source/03-openai-plugin-and-tunnel.md)。
 
-要求：Docker Compose v2。
+## 手动部署与开发
 
-```bash
-cp deploy/.env.example deploy/.env
-umask 077
-openssl rand -base64 32 > deploy/.web-access-password
-chmod 600 deploy/.web-access-password
-```
+| 目标 | 文档 |
+| --- | --- |
+| Agent 自动安装 | [INSTALL.md](INSTALL.md) |
+| 服务器安全部署 | [docs/open-source/01-server-deployment.md](docs/open-source/01-server-deployment.md) |
+| 本机路径与工作区 | [docs/local-workspaces.md](docs/local-workspaces.md) |
+| Router 与三种模式 | [docs/labcontext-router.md](docs/labcontext-router.md) |
+| ChatGPT、插件与 Tunnel | [docs/open-source/03-openai-plugin-and-tunnel.md](docs/open-source/03-openai-plugin-and-tunnel.md) |
+| 测试与发布 | [TESTING.md](TESTING.md) · [公开发布清单](docs/open-source/04-public-release-checklist.md) |
 
-在 `deploy/.env` 中把 `CODEXMANAGER_WEB_ACCESS_PASSWORD_FILE_HOST` 设为上一步生成文件的绝对路径，然后启动：
-
-```bash
-docker compose --env-file deploy/.env -f deploy/docker-compose.self-hosted.yml up -d --build
-curl -fsS http://127.0.0.1:48761/__auth_status
-```
-
-服务只发布 `127.0.0.1:48761`。从自己的电脑访问时使用 SSH 转发：
-
-```bash
-ssh -N -L 48761:127.0.0.1:48761 your-user@your-server
-```
-
-然后打开 `http://127.0.0.1:48761/` 并使用该密码登录。密码只在新数据卷首次启动时写入为哈希；要有意轮换它，请替换密码文件、将 `CODEXMANAGER_WEB_ACCESS_PASSWORD_RESET=1` 运行一次并随后恢复为 `0`。在任何反向代理或公网入口之前都应先验证登录。
-
-根目录的 `docker-compose.yml` 采用同样的安全默认值；复用上面的 `deploy/.env` 后可运行 `docker compose --env-file deploy/.env up -d --build`。
-
-## LabContext 连接
-
-原生服务默认连接 `http://127.0.0.1:1455/admin`，可通过以下环境变量覆盖：
-
-```bash
-export LABCONTEXT_ADMIN_URL=http://127.0.0.1:1455/admin
-export LABCTX_ADMIN_TOKEN_FILE="$HOME/.local/state/labcontext/admin.token"
-```
-
-Docker 部署需要把管理员 token 以只读方式挂入容器。请按 [服务器部署说明](docs/open-source/01-server-deployment.md) 使用 `deploy/docker-compose.labcontext.example.yml` 覆盖文件；它仅允许 `host.docker.internal` 这一 Docker 宿主机网关，不接受任意远程管理地址。
-
-如需让同一个 Web 控制台和同一条 ChatGPT MCP 连接同时使用本机与服务器项目，可安装可选的
-零依赖 LabContext Router。它支持 `local`、`server`、`hybrid` 三种解耦模式，日常只需运行
-`labcontext`；工具返回的 `workspace_ref` 会明确标记来源，避免同名项目误路由。桌面版仍可使用
-原生目录选择器。快速配置见[统一 LabContext Router](docs/labcontext-router.md)，目录权限与两种
-UI 的差异见[本地工作区说明](docs/local-workspaces.md)。
-
-仓库内的可选 [`labcontext-provider`](labcontext-provider/) 暴露 `inspect_path`，ChatGPT 可以直接读取
-`registry.allowed_roots` 下的绝对路径，无需创建工作区。Provider 0.8.0 支持安全文本、HTML 与文本型
-PDF；PDF 可按页续读和搜索，扫描件会明确提示需要 OCR。在 hybrid 模式下提示词应明确“本地”或
-“服务器”；工作区仍用于项目概述、证据、实验、研究图和长期会话衔接。
-
-Provider 与桌面端、服务器端保持解耦，可只安装在需要文件读取的一端：
-
-```bash
-LABCONTEXT_PROVIDER_PYTHON=python3.12 ./scripts/install-labcontext-provider.sh
-```
-
-## 本地开发
-
-要求：Node.js 20+、Python 3、Rust stable；桌面打包还需要对应平台的 Tauri 依赖。
+本地开发要求 Node.js 20+、Python 3.11+、Rust stable；桌面打包还需要对应平台的 Tauri 依赖。
 
 ```bash
 corepack pnpm@10.30.3 -C apps install --frozen-lockfile
@@ -137,42 +201,26 @@ corepack pnpm@10.30.3 -C apps run build:desktop
 corepack pnpm@10.30.3 -C apps run test:runtime
 cargo test --workspace --locked -- --test-threads=1
 cargo test --manifest-path apps/src-tauri/Cargo.toml --locked --lib
+scripts/open-source/preflight.sh
 ```
 
-更多验证和发布命令见 [TESTING.md](TESTING.md) 与 [公开发布清单](docs/open-source/04-public-release-checklist.md)。
-
-## 桌面端自动更新
-
-桌面端默认不查询任何 GitHub 仓库。创建自己的 GitHub Release 后，才在桌面端运行环境（或其环境变量覆盖）中设置：
-
-```bash
-CODEXMANAGER_UPDATE_REPO=owner/repository
-```
-
-留空会关闭更新检查和下载准备，避免安装包在未经维护者确认的情况下跟随上游项目。需要接收预发布版本时，再显式设置 `CODEXMANAGER_UPDATE_PRERELEASE=1` 并重启应用。
-
-## 目录
+## 代码结构
 
 ```text
-apps/                    Next.js 前端与 Tauri 桌面壳
-crates/core/             SQLite 迁移、存储与认证基础
-crates/service/          本地服务、账户、会话与 LabContext 适配
-crates/web/              Web 运行壳和受保护的 RPC 代理
-crates/start/            all-in-one 启动器
-labcontext-provider/     可独立安装的只读 MCP Provider（含 HTML/PDF 路径直读）
-deploy/                  安全 Compose 与可选 LabContext 覆盖
-scripts/                 构建、发布、探测与可选 LabContext Router
-plugins/                 不含连接 ID 的 Codex 插件模板
-docs/open-source/        部署、Tunnel 与发布说明
-cm-skills/               可选的 CodexManager Images API 本地技能
+labcontext-provider/     路径直读、工作区、证据与研究工具的只读 Provider
+scripts/labcontext*.py   本机 / 服务器统一 Router、SSH bridge 与启动诊断
+apps/                    Next.js 管理界面与 Tauri 桌面壳
+crates/web/              Web 运行壳、认证与受保护的 RPC 代理
+crates/service/          账号、额度、会话、用量和 LabContext 管理适配
+crates/core/             SQLite、认证与共享数据结构
+crates/start/            service + web 启动器
+deploy/                  安全 Compose 与 Router 示例配置
+plugins/                 不含用户连接 ID 的公开插件模板
+docs/                    路径、部署、Tunnel、安全与发布文档
 ```
 
-## 安全与贡献
+## 贡献、许可与来源
 
 - 安全问题请遵循 [SECURITY.md](SECURITY.md)，不要在公开 Issue 中提交凭据或可利用细节。
-- 贡献流程和验证要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-- 发布前运行 `scripts/open-source/preflight.sh`，并对最终 Git 历史执行独立秘密扫描。
-
-## 许可与来源
-
-本项目采用 [MIT License](LICENSE)。它基于 `qxcnm/Codex-Manager` 的 MIT 许可代码演进而来；版权与来源说明见 [NOTICE](NOTICE) 与[第三方声明](THIRD_PARTY_NOTICES.md)。
+- 贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 项目采用 [MIT License](LICENSE)，基于 `qxcnm/Codex-Manager` 的 MIT 许可代码演进而来；详见 [NOTICE](NOTICE) 与[第三方声明](THIRD_PARTY_NOTICES.md)。

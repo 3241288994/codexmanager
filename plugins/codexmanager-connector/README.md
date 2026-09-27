@@ -1,11 +1,13 @@
-# CodexManager Connector
+# CodexManager Connector — Paste a path, understand the project
 
-This is a public, skills-only plugin. It is valid without an MCP connection and
-guides safe CodexManager deployment and private client setup.
+This public, skills-only plugin guides users through a safe CodexManager and
+LabContext deployment: paste an authorized local or server path, inspect a
+bounded directory tree, find entry files, and understand the project in ChatGPT.
 
-CodexManager itself exposes an OpenAI-compatible gateway, not an MCP endpoint.
-Do not register its `/v1`, `/api/rpc`, `/rpc`, or LabContext admin routes as an
-MCP server.
+The public CodexManager service is not the model-facing MCP endpoint and does
+not publish an OpenAI-compatible `/v1` gateway. ChatGPT connects to the separate
+LabContext Router `/mcp`; never register `/api/rpc`, `/rpc`, `/admin`, or an SSH
+forward as an MCP server.
 
 The public template deliberately contains no Tunnel ID, runtime key, registered
 connection ID, `.app.json`, `apps`, or `mcpServers` entry. Install and test it
