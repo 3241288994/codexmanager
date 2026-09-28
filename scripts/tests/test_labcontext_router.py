@@ -24,6 +24,7 @@ from labcontext import (  # noqa: E402
     recovery_preflight,
     ssh_command,
     stop_verified_orphan_components,
+    wait_for_post_cleanup_validation,
 )
 from labcontext_router import (  # noqa: E402
     LabContextRouter,
@@ -478,6 +479,36 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertTrue(stack_stopped)
         self.assertIn("marker is absent", diagnostics)
+
+    def test_post_cleanup_validation_accepts_new_healthy_stack(self) -> None:
+        conflict = "Error: remote port forwarding failed for listen port 17987"
+        config = mock.Mock(listen_addr="127.0.0.1:1460")
+        with mock.patch("labcontext.capture_doctor", return_value=(2, conflict)), \
+                mock.patch("labcontext.load_config", return_value=config), \
+                mock.patch("labcontext.fetch_router_status", return_value={"overall": "ready"}):
+            result, diagnostics = wait_for_post_cleanup_validation(
+                Path("/tmp/config.toml"),
+                {"LABCONTEXT_SSH_HOST": "research-host"},
+            )
+        self.assertEqual(result, 0)
+        self.assertIn("new healthy LabContext stack took ownership", diagnostics)
+
+    def test_post_cleanup_validation_waits_for_remote_port_release(self) -> None:
+        conflict = "Error: remote port forwarding failed for listen port 17987"
+        config = mock.Mock(listen_addr="127.0.0.1:1460")
+        with mock.patch("labcontext.capture_doctor", side_effect=[
+            (2, conflict),
+            (0, "router config: ok"),
+        ]), mock.patch("labcontext.load_config", return_value=config), \
+                mock.patch("labcontext.fetch_router_status", return_value=None), \
+                mock.patch("labcontext.time.sleep") as sleep:
+            result, diagnostics = wait_for_post_cleanup_validation(
+                Path("/tmp/config.toml"),
+                {"LABCONTEXT_SSH_HOST": "research-host"},
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(diagnostics, "router config: ok")
+        sleep.assert_called_once()
 
     def test_ssh_probe_disables_forwardings_and_reports_auth_failure(self) -> None:
         result = subprocess.CompletedProcess(

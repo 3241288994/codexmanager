@@ -843,9 +843,49 @@ def recovery_preflight(
     if not cleaned:
         return retry_result, diagnostics, stack_stopped
 
-    final_result, final_diagnostics = capture_doctor(config_path, values)
+    final_result, final_diagnostics = wait_for_post_cleanup_validation(config_path, values)
     diagnostics += "\n\nAfter managed bridge cleanup:\n" + final_diagnostics
     return final_result, diagnostics, stack_stopped
+
+
+def wait_for_post_cleanup_validation(
+    config_path: Path,
+    values: dict[str, str],
+    timeout_seconds: float = 15.0,
+) -> tuple[int, str]:
+    """Wait for remote teardown or a concurrently starting healthy stack.
+
+    A managed remote SSH session can disappear just as another verified
+    LabContext launcher claims the same reverse-forward port. Treating that
+    short hand-off as a stale-port failure makes a successful repair look
+    broken, so re-check both the doctor probe and the Router's real status for
+    a bounded period.
+    """
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    address: tuple[str, int] | None = None
+    last_result = 2
+    last_diagnostics = "post-cleanup validation did not run"
+
+    while True:
+        last_result, last_diagnostics = capture_doctor(config_path, values)
+        if last_result == 0:
+            return 0, last_diagnostics
+        if "remote port forwarding failed" not in last_diagnostics.lower():
+            return last_result, last_diagnostics
+
+        if address is None:
+            address = parse_listen_addr(load_config(config_path).listen_addr)
+        runtime = fetch_router_status(address)
+        if runtime and runtime.get("overall") == "ready":
+            return 0, "\n".join((
+                last_diagnostics,
+                "runtime: ready (a new healthy LabContext stack took ownership during cleanup)",
+            ))
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return last_result, last_diagnostics
+        time.sleep(min(0.5, remaining))
 
 
 def repair(config_path: Path, values: dict[str, str]) -> int:
