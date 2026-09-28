@@ -13,6 +13,8 @@ import copy
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -32,10 +34,12 @@ except ModuleNotFoundError:  # Python 3.9/3.10 compatibility
 
 
 PROTOCOL_VERSION = "2025-06-18"
-ROUTER_VERSION = "0.3.0"
+ROUTER_VERSION = "0.4.0"
 DEFAULT_LISTEN_ADDR = "127.0.0.1:1460"
 DEFAULT_CONFIG_PATH = Path("~/.config/labcontext/config.toml").expanduser()
 DEFAULT_STATUS_PATH = Path("~/.local/state/labcontext-router/launcher-status.json").expanduser()
+DEFAULT_RECOVERY_STATUS_PATH = Path("~/.local/state/labcontext-router/recovery-status.json").expanduser()
+DEFAULT_RECOVERY_LOG_PATH = Path("~/.local/state/labcontext-router/recovery.log").expanduser()
 DEFAULT_TUNNEL_HEALTH_URL = "http://127.0.0.1:8080"
 REQUIRED_PROVIDER_TOOLS = {"inspect_path", "list_workspaces"}
 NON_WORKSPACE_TOOLS = {"list_workspaces", "get_job", "inspect_path"}
@@ -322,7 +326,124 @@ class LabContextRouter:
         self._tool_cache: tuple[float, list[dict[str, Any]], dict[str, set[str]]] | None = None
         self._status_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._cache_lock = threading.Lock()
+        self._recovery_lock = threading.Lock()
         self._opener = build_opener(ProxyHandler({}))
+
+    @staticmethod
+    def _read_json_file(path: Path) -> dict[str, Any] | None:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def recovery_status(self) -> dict[str, Any]:
+        path = Path(os.environ.get(
+            "LABCONTEXT_RECOVERY_STATUS_FILE", str(DEFAULT_RECOVERY_STATUS_PATH),
+        )).expanduser()
+        status = self._read_json_file(path)
+        if not status:
+            return {
+                "schemaVersion": 1,
+                "phase": "idle",
+                "summary": "当前没有恢复任务",
+            }
+        phase = status.get("phase")
+        worker_pid = status.get("workerPid")
+        if phase in {"queued", "diagnosing", "restarting", "verifying"} and not self._process_is_alive(worker_pid):
+            status.update({
+                "phase": "failed",
+                "reasonCode": "recovery_worker_exited",
+                "summary": "一键修复进程意外退出",
+                "detail": "恢复进程没有留下完成结果，请查看恢复日志或运行 labcontext doctor。",
+                "suggestions": ["运行 labcontext doctor 获取原始诊断。", "随后运行 labcontext repair 重试。"],
+                "command": "labcontext doctor && labcontext repair",
+                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+        return status
+
+    def start_recovery(self) -> dict[str, Any]:
+        with self._recovery_lock:
+            current = self.recovery_status()
+            if current.get("phase") in {"queued", "diagnosing", "restarting", "verifying"}:
+                return current
+            status_path = Path(os.environ.get(
+                "LABCONTEXT_RECOVERY_STATUS_FILE", str(DEFAULT_RECOVERY_STATUS_PATH),
+            )).expanduser()
+            log_path = Path(os.environ.get(
+                "LABCONTEXT_RECOVERY_LOG_FILE", str(DEFAULT_RECOVERY_LOG_PATH),
+            )).expanduser()
+            env_path = Path(os.environ.get(
+                "LABCONTEXT_ENV_FILE", "~/.config/labcontext/launcher.env",
+            )).expanduser()
+            config_path = Path(os.environ.get(
+                "LABCONTEXT_ROUTER_CONFIG", str(DEFAULT_CONFIG_PATH),
+            )).expanduser()
+            launcher_script = Path(os.environ.get(
+                "LABCONTEXT_LAUNCHER_SCRIPT", str(Path(__file__).resolve().with_name("labcontext.py")),
+            )).expanduser()
+            if not launcher_script.is_file():
+                raise RouterError(f"LabContext launcher script not found: {launcher_script}")
+
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            job_id = uuid.uuid4().hex
+            started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            initial = {
+                "schemaVersion": 1,
+                "jobId": job_id,
+                "phase": "queued",
+                "summary": "修复任务已创建，正在准备诊断",
+                "startedAt": started_at,
+                "updatedAt": started_at,
+                "suggestions": [],
+            }
+            temporary = status_path.with_name(f".{status_path.name}.{os.getpid()}.tmp")
+            temporary.write_text(json.dumps(initial, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            os.replace(temporary, status_path)
+            environment = os.environ.copy()
+            environment.update({
+                "LABCONTEXT_RECOVERY_JOB_ID": job_id,
+                "LABCONTEXT_RECOVERY_STATUS_FILE": str(status_path),
+                "LABCONTEXT_RECOVERY_LOG_FILE": str(log_path),
+                "LABCONTEXT_ENV_FILE": str(env_path),
+                "LABCONTEXT_ROUTER_CONFIG": str(config_path),
+                "LABCONTEXT_LAUNCHER_SCRIPT": str(launcher_script),
+            })
+            command = [
+                sys.executable,
+                str(launcher_script),
+                "--env-file", str(env_path),
+                "--config", str(config_path),
+                "--repair-worker",
+            ]
+            try:
+                with log_path.open("ab", buffering=0) as log_handle:
+                    worker = subprocess.Popen(
+                        command,
+                        stdin=subprocess.DEVNULL,
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
+                        env=environment,
+                        start_new_session=True,
+                        close_fds=True,
+                    )
+            except OSError as exc:
+                initial.update({
+                    "phase": "failed",
+                    "reasonCode": "recovery_worker_start_failed",
+                    "summary": "无法启动一键修复进程",
+                    "detail": str(exc),
+                    "suggestions": ["请在终端运行 labcontext doctor && labcontext repair。"],
+                    "command": "labcontext doctor && labcontext repair",
+                })
+                temporary.write_text(json.dumps(initial, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                os.replace(temporary, status_path)
+                return initial
+            initial["workerPid"] = worker.pid
+            temporary.write_text(json.dumps(initial, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            os.replace(temporary, status_path)
+            return initial
 
     @staticmethod
     def _version_tuple(value: str) -> tuple[int, ...] | None:
@@ -877,6 +998,9 @@ class RouterHandler(BaseHTTPRequestHandler):
             if self.path == "/api/status":
                 self._json(HTTPStatus.OK, self.router.connection_status())
                 return
+            if self.path == "/api/recovery":
+                self._json(HTTPStatus.OK, self.router.recovery_status())
+                return
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
         except RouterError as exc:
             self._json(HTTPStatus.FORBIDDEN, {"error": str(exc)})
@@ -915,6 +1039,9 @@ class RouterHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if self.path == "/api/recovery/repair":
+                self._json(HTTPStatus.ACCEPTED, self.router.start_recovery())
                 return
             prefix = "/api/admin/"
             suffix = "/call"

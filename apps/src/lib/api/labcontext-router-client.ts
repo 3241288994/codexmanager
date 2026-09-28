@@ -60,6 +60,29 @@ export type LabContextConnectionStatus = {
   };
 };
 
+export type LabContextRecoveryPhase =
+  | "idle"
+  | "queued"
+  | "diagnosing"
+  | "restarting"
+  | "verifying"
+  | "succeeded"
+  | "failed";
+
+export type LabContextRecoveryStatus = {
+  schemaVersion: number;
+  jobId?: string;
+  phase: LabContextRecoveryPhase;
+  summary: string;
+  detail?: string;
+  reasonCode?: string;
+  suggestions?: string[];
+  command?: string;
+  startedAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
+};
+
 function routerUrl(path: string): string {
   const base = process.env.NEXT_PUBLIC_LABCONTEXT_ROUTER_URL || DEFAULT_ROUTER_URL;
   return `${base.replace(/\/$/, "")}${path}`;
@@ -93,6 +116,22 @@ export async function probeLabContextRouter(): Promise<{
       && local.adminStatus === "ready"
     ),
   };
+}
+
+export async function requestLabContextRepair(): Promise<LabContextRecoveryStatus> {
+  const response = await fetchWithRetry(routerUrl("/api/recovery/repair"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: "{}",
+  }, { timeoutMs: 8_000, retries: 0 });
+  return responseJson<LabContextRecoveryStatus>(response);
+}
+
+export async function getLabContextRecoveryStatus(): Promise<LabContextRecoveryStatus> {
+  const response = await fetchWithRetry(routerUrl("/api/recovery"), {
+    headers: { Accept: "application/json" },
+  }, { timeoutMs: 3_000, retries: 0 });
+  return responseJson<LabContextRecoveryStatus>(response);
 }
 
 export async function callLocalLabContextRouter<T>(

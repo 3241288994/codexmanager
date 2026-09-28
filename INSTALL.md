@@ -116,11 +116,14 @@ labcontext repair
 # Web 与连接中心
 curl -fsS http://127.0.0.1:48761/__auth_status
 curl -fsS http://127.0.0.1:1460/api/status
+curl -fsS http://127.0.0.1:1460/api/recovery
 ```
 
 还要在 ChatGPT 新会话中确认能看到 `inspect_path`，并分别对已授权来源进行一次真实读取；`hybrid`
 模式必须各测一次 `source=local` 和 `source=server`。连接中心只有在 Router 身份、Provider 最低版本、
 MCP 初始化、工具列表、真实工具调用、SSH 和 Tunnel 检查都通过后，才算“完全连通”。
+降级时可以直接点击连接中心的“一键修复”；它会依次执行安全诊断、受控重启和真实能力复检。
+安全检查失败时不会强行接管端口或修改凭据，而会显示具体原因和人工处理建议。
 
 最后运行仓库级检查：
 

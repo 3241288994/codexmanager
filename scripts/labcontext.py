@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import shlex
@@ -23,6 +25,8 @@ from labcontext_router import DEFAULT_CONFIG_PATH, RouterError, load_config, par
 
 DEFAULT_ENV_PATH = Path("~/.config/labcontext/launcher.env").expanduser()
 DEFAULT_STATUS_PATH = Path("~/.local/state/labcontext-router/launcher-status.json").expanduser()
+DEFAULT_RECOVERY_STATUS_PATH = Path("~/.local/state/labcontext-router/recovery-status.json").expanduser()
+DEFAULT_RECOVERY_LOG_PATH = Path("~/.local/state/labcontext-router/recovery.log").expanduser()
 DEFAULT_DASHBOARD_URL = "http://127.0.0.1:48761/labcontext/"
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROUTER_SCRIPT = SCRIPT_DIR / "labcontext_router.py"
@@ -598,6 +602,253 @@ def repair(config_path: Path, values: dict[str, str]) -> int:
     return run(config_path, values)
 
 
+def write_recovery_status(values: dict[str, str], payload: dict[str, object]) -> None:
+    path = Path(values.get(
+        "LABCONTEXT_RECOVERY_STATUS_FILE", str(DEFAULT_RECOVERY_STATUS_PATH),
+    )).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload["schemaVersion"] = 1
+    payload["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def recovery_failure_from_diagnostics(output: str, values: dict[str, str]) -> dict[str, object]:
+    normalized = output.lower()
+    if "remote port forwarding failed" in normalized:
+        port = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT", "17987")
+        return {
+            "reasonCode": "ssh_reverse_port_in_use",
+            "summary": f"服务器反向转发端口 {port} 已被占用，无法安全自动接管",
+            "detail": output,
+            "suggestions": [
+                "这通常是上一次 SSH 转发会话仍留在服务器上。",
+                f"在服务器确认占用 127.0.0.1:{port} 的进程属于旧 LabContext 会话后将其停止，或更换 LABCONTEXT_SERVER_PROXY_REMOTE_PORT。",
+                "处理后再次点击“一键修复”。",
+            ],
+            "command": "labcontext doctor && labcontext repair",
+        }
+    if "permission denied" in normalized or "publickey" in normalized:
+        return {
+            "reasonCode": "ssh_authentication_failed",
+            "summary": "SSH 身份验证失败，自动修复不会修改密钥或登录配置",
+            "detail": output,
+            "suggestions": [
+                "确认 launcher.env 使用了正确的 SSH 别名、配置文件或私钥。",
+                "先在终端验证 SSH 登录，再次点击“一键修复”。",
+            ],
+            "command": "labcontext doctor",
+        }
+    if "timed out" in normalized or "operation timed out" in normalized:
+        return {
+            "reasonCode": "ssh_connection_timeout",
+            "summary": "SSH 连接超时，当前网络无法到达服务器",
+            "detail": output,
+            "suggestions": ["检查 VPN、校园网、跳板机和服务器地址，然后再次尝试。"],
+            "command": "labcontext doctor",
+        }
+    if "required program is not installed" in normalized:
+        return {
+            "reasonCode": "dependency_missing",
+            "summary": "缺少 LabContext 启动所需的本机程序",
+            "detail": output,
+            "suggestions": ["安装诊断中指出的程序，确认它位于 PATH 后再次尝试。"],
+            "command": "labcontext doctor",
+        }
+    return {
+        "reasonCode": "diagnostics_failed",
+        "summary": "安全检查未通过，未改动当前运行进程",
+        "detail": output or "labcontext doctor 未返回更多信息",
+        "suggestions": ["按上方原始诊断修正配置后再次点击“一键修复”。"],
+        "command": "labcontext doctor && labcontext repair",
+    }
+
+
+def runtime_recovery_failure(status: dict[str, object] | None) -> dict[str, object]:
+    if not status:
+        return {
+            "reasonCode": "router_start_timeout",
+            "summary": "重启后 Router 未能在限定时间内响应",
+            "detail": "未能读取 http://127.0.0.1:1460/api/status。",
+            "suggestions": ["查看恢复日志并运行 labcontext doctor。"],
+            "command": "labcontext doctor",
+        }
+    providers = status.get("providers")
+    if isinstance(providers, list):
+        for provider in providers:
+            if isinstance(provider, dict) and provider.get("status") != "ready":
+                label = provider.get("label") or provider.get("id") or "Provider"
+                detail = provider.get("error") or provider.get("adminError") or "真实能力检查未通过"
+                return {
+                    "reasonCode": "provider_unavailable",
+                    "summary": f"{label} 在重启后仍不可用",
+                    "detail": str(detail),
+                    "suggestions": ["检查对应 Provider 服务与端口，再次执行修复。"],
+                    "command": "labcontext status",
+                }
+    tunnel = status.get("tunnel")
+    if isinstance(tunnel, dict) and tunnel.get("enabled") and tunnel.get("status") != "ready":
+        return {
+            "reasonCode": "tunnel_unavailable",
+            "summary": "OpenAI Tunnel 在重启后仍未就绪",
+            "detail": str(tunnel.get("detail") or "Tunnel 健康检查失败"),
+            "suggestions": ["检查 tunnel profile 和 OpenAI Tunnel 登录状态。"],
+            "command": "tunnel-client doctor --profile labcontext --explain",
+        }
+    return {
+        "reasonCode": "recovery_verification_failed",
+        "summary": "重启已完成，但完整能力检查仍未通过",
+        "detail": json.dumps(status, ensure_ascii=False)[:6000],
+        "suggestions": ["复制诊断信息，并运行 labcontext doctor 获取进一步原因。"],
+        "command": "labcontext doctor",
+    }
+
+
+def capture_doctor(config_path: Path, values: dict[str, str]) -> tuple[int, str]:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = doctor(config_path, values)
+    except SystemExit as exc:
+        result = exc.code if isinstance(exc.code, int) else 2
+        if exc.code and not isinstance(exc.code, int):
+            stderr.write(str(exc.code))
+    except (RouterError, OSError, ValueError) as exc:
+        result = 2
+        stderr.write(f"labcontext: {exc}")
+    output = "\n".join(part.strip() for part in (stdout.getvalue(), stderr.getvalue()) if part.strip())
+    return int(result), output[-12000:]
+
+
+def recovery_worker(config_path: Path, values: dict[str, str]) -> int:
+    # Give the HTTP handler enough time to return 202 before the old Router is stopped.
+    time.sleep(0.8)
+    job_id = os.environ.get("LABCONTEXT_RECOVERY_JOB_ID", "unknown")
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    base: dict[str, object] = {
+        "jobId": job_id,
+        "workerPid": os.getpid(),
+        "startedAt": started_at,
+        "suggestions": [],
+    }
+    write_recovery_status(values, {
+        **base,
+        "phase": "diagnosing",
+        "summary": "正在检查 SSH、端口、Provider 与 Tunnel 配置",
+    })
+    result, diagnostics = capture_doctor(config_path, values)
+    if result != 0:
+        write_recovery_status(values, {
+            **base,
+            "phase": "failed",
+            **recovery_failure_from_diagnostics(diagnostics, values),
+            "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        return result
+
+    current = fetch_router_status(parse_listen_addr(load_config(config_path).listen_addr))
+    if current and current.get("overall") == "ready":
+        write_recovery_status(values, {
+            **base,
+            "phase": "succeeded",
+            "summary": "LabContext 已恢复，无需重启",
+            "detail": diagnostics,
+            "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        return 0
+
+    write_recovery_status(values, {
+        **base,
+        "phase": "restarting",
+        "summary": "安全检查通过，正在重建 LabContext 连接",
+        "detail": diagnostics,
+    })
+    try:
+        stop_running_stack(config_path, values)
+    except (SystemExit, RouterError, OSError, ValueError) as exc:
+        failure = recovery_failure_from_diagnostics(str(exc), values)
+        write_recovery_status(values, {
+            **base,
+            "phase": "failed",
+            **failure,
+            "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        return 2
+
+    env_path = Path(values.get("LABCONTEXT_ENV_FILE", str(DEFAULT_ENV_PATH))).expanduser()
+    launcher_script = Path(values.get("LABCONTEXT_LAUNCHER_SCRIPT", str(Path(__file__).resolve()))).expanduser()
+    log_path = Path(values.get(
+        "LABCONTEXT_RECOVERY_LOG_FILE", str(DEFAULT_RECOVERY_LOG_PATH),
+    )).expanduser()
+    command = [
+        sys.executable, str(launcher_script),
+        "--env-file", str(env_path),
+        "--config", str(config_path),
+    ]
+    try:
+        with log_path.open("ab", buffering=0) as log_handle:
+            launcher = subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                env=process_environment(values),
+                start_new_session=True,
+                close_fds=True,
+            )
+    except OSError as exc:
+        write_recovery_status(values, {
+            **base,
+            "phase": "failed",
+            "reasonCode": "launcher_start_failed",
+            "summary": "诊断通过，但新的 LabContext 启动器无法启动",
+            "detail": str(exc),
+            "suggestions": ["运行 labcontext 检查启动器安装与权限。"],
+            "command": "labcontext",
+            "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        return 2
+
+    write_recovery_status(values, {
+        **base,
+        "phase": "verifying",
+        "summary": "连接已重建，正在执行真实能力验证",
+        "launcherPid": launcher.pid,
+    })
+    address = parse_listen_addr(load_config(config_path).listen_addr)
+    deadline = time.monotonic() + 45
+    last_status: dict[str, object] | None = None
+    while time.monotonic() < deadline:
+        if launcher.poll() is not None:
+            break
+        last_status = fetch_router_status(address)
+        if last_status and last_status.get("overall") == "ready":
+            write_recovery_status(values, {
+                **base,
+                "phase": "succeeded",
+                "summary": "一键修复完成，LabContext 已完全连通",
+                "detail": "Router、Provider、SSH 与 Tunnel 均已通过真实能力检查。",
+                "launcherPid": launcher.pid,
+                "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+            return 0
+        time.sleep(1)
+
+    write_recovery_status(values, {
+        **base,
+        "phase": "failed",
+        **runtime_recovery_failure(last_status),
+        "launcherPid": launcher.pid,
+        "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+    return 2
+
+
 def stop_processes(processes: list[tuple[str, subprocess.Popen[bytes]]]) -> None:
     for _, process in reversed(processes):
         if process.poll() is None:
@@ -757,6 +1008,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run optional LabContext providers behind one MCP endpoint")
     parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_PATH)
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--repair-worker", action="store_true", help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command")
     init_parser = subparsers.add_parser("init", help="create a local, server, or hybrid configuration")
     init_parser.add_argument("mode", choices=("local", "server", "hybrid"))
@@ -775,7 +1027,16 @@ def main() -> int:
         secret_values = load_env(Path(secret_env_file).expanduser())
         secret_values.update(values)
         values = secret_values
+    env_path = args.env_file.expanduser()
     config_path = (args.config or Path(values.get("LABCONTEXT_ROUTER_CONFIG", str(DEFAULT_CONFIG_PATH)))).expanduser()
+    values["LABCONTEXT_ENV_FILE"] = str(env_path)
+    values["LABCONTEXT_ROUTER_CONFIG"] = str(config_path)
+    values["LABCONTEXT_LAUNCHER_SCRIPT"] = str(Path(__file__).resolve())
+    values.setdefault("LABCONTEXT_RECOVERY_STATUS_FILE", str(DEFAULT_RECOVERY_STATUS_PATH))
+    values.setdefault("LABCONTEXT_RECOVERY_LOG_FILE", str(DEFAULT_RECOVERY_LOG_PATH))
+    for key in ("LABCONTEXT_RECOVERY_STATUS_FILE", "LABCONTEXT_RECOVERY_LOG_FILE"):
+        if os.environ.get(key):
+            values[key] = os.environ[key]
     if args.command == "init":
         args.config = config_path
         return init_config(args)
@@ -791,6 +1052,8 @@ def main() -> int:
     if args.command == "stop":
         stop_running_stack(config_path, values)
         return 0
+    if args.repair_worker:
+        return recovery_worker(config_path, values)
     return run(config_path, values)
 
 

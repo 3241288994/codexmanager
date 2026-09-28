@@ -41,11 +41,15 @@ test("本地工作区通过桌面壳或可选回环 Router 暴露", async () => 
   assert.match(page, /<ConnectionCenter/);
   assert.match(connectionCenter, /端口存在/);
   assert.match(connectionCenter, /复制诊断/);
-  assert.match(connectionCenter, /复制修复命令/);
+  assert.match(connectionCenter, /一键修复/);
+  assert.match(connectionCenter, /requestLabContextRepair/);
+  assert.match(connectionCenter, /getLabContextRecoveryStatus/);
   assert.match(connectionCenter, /真实调用/);
   assert.match(recovery, /labcontext doctor && labcontext repair/);
   assert.match(recovery, /SSH 桥接没有建立成功/);
   assert.match(routerClient, /\/api\/status/);
+  assert.match(routerClient, /\/api\/recovery\/repair/);
+  assert.match(routerClient, /\/api\/recovery/);
   assert.match(page, /readOnly=\{workspaceForm\.location === "local" && isDesktopRuntime\}/);
 });
 

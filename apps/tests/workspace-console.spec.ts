@@ -122,12 +122,42 @@ const researchMapBundle = {
   events: [],
 };
 
-async function mockConsoleApi(page: Page, localRouter = false) {
+async function mockConsoleApi(
+  page: Page,
+  localRouter = false,
+  recoveryOutcome: "succeeded" | "failed" | null = null,
+) {
   const methods: string[] = [];
+  let repairRequested = false;
   await page.route("http://127.0.0.1:1460/**", async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === "/api/recovery/repair") {
+      repairRequested = true;
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json; charset=utf-8",
+        body: JSON.stringify({ schemaVersion: 1, phase: "queued", summary: "修复任务已创建" }),
+      });
+      return;
+    }
+    if (url.pathname === "/api/recovery") {
+      const failed = recoveryOutcome === "failed";
+      await route.fulfill({
+        contentType: "application/json; charset=utf-8",
+        body: JSON.stringify(repairRequested ? {
+          schemaVersion: 1,
+          phase: failed ? "failed" : "succeeded",
+          summary: failed ? "服务器反向转发端口 17987 已被占用，无法安全自动接管" : "一键修复完成，LabContext 已完全连通",
+          detail: failed ? "remote port forwarding failed for listen port 17987" : "全部能力检查通过",
+          reasonCode: failed ? "ssh_reverse_port_in_use" : undefined,
+          suggestions: failed ? ["停止服务器上的旧 LabContext SSH 会话后再次修复。"] : [],
+          command: failed ? "labcontext doctor && labcontext repair" : undefined,
+        } : { schemaVersion: 1, phase: "idle", summary: "当前没有恢复任务" }),
+      });
+      return;
+    }
     if (url.pathname === "/api/status") {
-      const providers = localRouter ? [{
+      const providers: Record<string, unknown>[] = localRouter ? [{
         id: "local",
         label: "This computer",
         mcpUrl: "http://127.0.0.1:1456/mcp",
@@ -142,14 +172,29 @@ async function mockConsoleApi(page: Page, localRouter = false) {
         workspaceCount: 1,
         latencyMs: 8,
       }] : [];
+      if (recoveryOutcome) providers.push({
+        id: "server",
+        label: "Research server",
+        mcpUrl: "http://127.0.0.1:1455/mcp",
+        adminEnabled: false,
+        status: "unavailable",
+        adminStatus: "disabled",
+        error: "provider server is unavailable: connection refused",
+      });
       await route.fulfill({
         contentType: "application/json; charset=utf-8",
         body: JSON.stringify({
           schemaVersion: 1,
           checkedAt: new Date().toISOString(),
-          overall: localRouter ? "ready" : "unavailable",
-          router: { status: "ready", name: "LabContext Router", version: "0.3.0", pid: 1234 },
-          launcher: { status: "running", launcherPid: 1233, components: [] },
+          overall: recoveryOutcome ? "degraded" : localRouter ? "ready" : "unavailable",
+          router: { status: "ready", name: "LabContext Router", version: "0.4.0", pid: 1234 },
+          launcher: {
+            status: "running",
+            launcherPid: 1233,
+            components: recoveryOutcome ? [{
+              id: "ssh-bridge", label: "SSH bridge", pid: 1232, status: "retrying", exitCode: 255,
+            }] : [],
+          },
           providers,
           tunnel: { enabled: false, status: "disabled", detail: "未启用 Secure MCP Tunnel" },
         }),
@@ -321,7 +366,8 @@ test("the maintained account, analytics, session, and LabContext routes load thr
   await expect(page.getByRole("button", { name: "本地电脑" }).first()).toBeDisabled();
   await expect(page.getByText("LabContext 连接需要处理", { exact: true })).toBeVisible();
   await expect(page.getByText("连接链路需要恢复", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "复制修复命令" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "复制命令" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "一键修复" })).toBeVisible();
   await expect(page.getByText("Example Research", { exact: true })).toBeVisible();
   await expect(page.getByText("模型可见工具", { exact: true })).toBeVisible();
 
@@ -362,4 +408,16 @@ test("the Web console unlocks local workspaces when the loopback Router is ready
   const root = page.getByLabel("本地项目目录");
   await expect(root).toBeEditable();
   await root.fill("/Users/research/project");
+});
+
+test("the connection center runs one-click recovery and reports an exact safe failure", async ({ page }) => {
+  await mockConsoleApi(page, true, "failed");
+  await page.goto("/labcontext/");
+
+  await expect(page.getByText("LabContext 当前为降级可用")).toBeVisible();
+  await page.getByRole("button", { name: "一键修复" }).click();
+  await expect(page.getByText("服务器反向转发端口 17987 已被占用，无法安全自动接管")).toBeVisible();
+  await expect(page.getByText("原因代码：ssh_reverse_port_in_use")).toBeVisible();
+  await expect(page.getByText("停止服务器上的旧 LabContext SSH 会话后再次修复。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "再次修复" })).toBeVisible();
 });

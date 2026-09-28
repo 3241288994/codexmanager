@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,13 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
-from labcontext import probe_ssh, probe_ssh_remote_forward, process_status, ssh_command  # noqa: E402
+from labcontext import (  # noqa: E402
+    probe_ssh,
+    probe_ssh_remote_forward,
+    process_status,
+    recovery_failure_from_diagnostics,
+    ssh_command,
+)
 from labcontext_router import (  # noqa: E402
     LabContextRouter,
     ProviderConfig,
@@ -195,7 +202,7 @@ class RouterTest(unittest.TestCase):
         with mock.patch.dict("os.environ", {"LABCONTEXT_ENABLE_TUNNEL": "0"}):
             status = self.router.connection_status()
         self.assertEqual(status["overall"], "ready")
-        self.assertEqual(status["router"]["version"], "0.3.0")
+        self.assertEqual(status["router"]["version"], "0.4.0")
         self.assertEqual(status["tunnel"]["status"], "disabled")
         self.assertEqual({item["serverName"] for item in status["providers"]}, {"LabContext"})
 
@@ -215,12 +222,54 @@ class RouterTest(unittest.TestCase):
                 status = json.loads(response.read())
                 self.assertEqual(status["overall"], "ready")
                 self.assertEqual(status["router"]["name"], "LabContext Router")
+            with mock.patch.object(self.router, "start_recovery", return_value={
+                "schemaVersion": 1, "phase": "queued", "summary": "queued",
+            }):
+                repair_request = Request(
+                    f"http://127.0.0.1:{server.server_port}/api/recovery/repair",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(repair_request, timeout=2) as response:
+                    self.assertEqual(response.status, 202)
+                    self.assertEqual(json.loads(response.read())["phase"], "queued")
         finally:
             server.shutdown()
             server.server_close()
 
+    def test_recovery_request_starts_a_detached_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            status_path = Path(directory) / "recovery.json"
+            log_path = Path(directory) / "recovery.log"
+            environment = {
+                "LABCONTEXT_RECOVERY_STATUS_FILE": str(status_path),
+                "LABCONTEXT_RECOVERY_LOG_FILE": str(log_path),
+                "LABCONTEXT_LAUNCHER_SCRIPT": str(SCRIPTS / "labcontext.py"),
+                "LABCONTEXT_ENV_FILE": str(Path(directory) / "launcher.env"),
+                "LABCONTEXT_ROUTER_CONFIG": str(Path(directory) / "config.toml"),
+            }
+            worker = mock.Mock(pid=4321)
+            with mock.patch.dict(os.environ, environment, clear=False), \
+                    mock.patch.object(self.router, "connection_status", return_value={"overall": "degraded"}), \
+                    mock.patch("labcontext_router.subprocess.Popen", return_value=worker) as popen:
+                result = self.router.start_recovery()
+            self.assertEqual(result["phase"], "queued")
+            self.assertEqual(result["workerPid"], 4321)
+            self.assertEqual(json.loads(status_path.read_text(encoding="utf-8"))["jobId"], result["jobId"])
+            self.assertIn("--repair-worker", popen.call_args.args[0])
+            self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
 
 class LauncherTest(unittest.TestCase):
+    def test_recovery_reports_remote_reverse_port_conflict(self) -> None:
+        result = recovery_failure_from_diagnostics(
+            "Error: remote port forwarding failed for listen port 17987",
+            {"LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987"},
+        )
+        self.assertEqual(result["reasonCode"], "ssh_reverse_port_in_use")
+        self.assertIn("17987", result["summary"])
+
     def test_failed_optional_component_reports_retry_state(self) -> None:
         process = subprocess.Popen([sys.executable, "-c", "raise SystemExit(23)"])
         process.wait(timeout=2)

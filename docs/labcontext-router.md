@@ -98,7 +98,9 @@ labcontext repair
 `status` 不只检查端口，还会核对 Provider 身份与最低版本、执行 MCP 初始化、读取工具清单、调用一次
 `list_workspaces`，并检查管理接口、SSH 子进程和 Tunnel `/readyz`。启动器运行记录默认写入
 `~/.local/state/labcontext-router/launcher-status.json`，其中只包含 PID、状态和退出码，不包含命令行、
-token 或其他凭据。可用 `LABCONTEXT_STATUS_FILE`、`LABCONTEXT_TUNNEL_HEALTH_URL` 与
+token 或其他凭据。一键修复状态和日志默认写入同目录的 `recovery-status.json` 与 `recovery.log`。
+可用 `LABCONTEXT_STATUS_FILE`、`LABCONTEXT_RECOVERY_STATUS_FILE`、
+`LABCONTEXT_RECOVERY_LOG_FILE`、`LABCONTEXT_TUNNEL_HEALTH_URL` 与
 `LABCONTEXT_DASHBOARD_URL` 调整对应地址。local Provider、SSH 或 Tunnel 异常退出时，Router 与连接
 中心会继续运行，启动器采用有上限的退避自动重试；因此可以看见真实错误，而不是整套服务反复消失。
 
@@ -143,8 +145,14 @@ Codex 会话衔接。统一 Router 要求 Provider 至少为 `0.7.0`，并且提
 浏览器打开 `http://127.0.0.1:48761/labcontext/` 时会探测
 `http://127.0.0.1:1460/api/status`。页面内置的连接中心分别显示 Router、Provider、SSH 子进程和
 OpenAI Tunnel：全部通过后自动收起并进入正常工作区界面，出现降级或失败时保持展开，支持重新检测
-和复制脱敏诊断。降级时还会根据失败层级显示修复建议与可复制命令。网页不会直接终止本机进程：
-同一 Web UI 可能来自服务器转发，自动执行容易修错机器；实际恢复由本机 `labcontext repair` 完成。
+和复制脱敏诊断。降级时可以点击“一键修复”：网页只请求浏览器本机回环地址上的 Router，独立恢复
+进程会先运行安全诊断，检查通过后才停止已验证的旧监督器、重建连接并执行真实能力复检。SSH 密钥
+错误、网络超时、服务器反向端口被占用等无法安全自动处理的情况不会强行接管，而会显示失败阶段、
+原始原因、原因代码和人工建议。Router 重启期间页面会持续轮询恢复状态。
+
+恢复接口只有回环 Router 提供：`POST /api/recovery/repair` 创建任务，`GET /api/recovery` 读取结果。
+接口仍受精确 Origin 限制，不应将 Router 暴露到局域网或公网。Router 本身无法访问时，网页无法发起
+修复，需在终端运行 `labcontext doctor && labcontext repair`。
 如果 `local` Provider 的 MCP 和 admin 都可用，页面会自动解锁“本地电脑”；
 不需要切换到 Tauri 桌面版。桌面版仍保留原生目录选择器，Web 版则要求填写运行 local Provider
 的电脑能够访问的绝对路径。

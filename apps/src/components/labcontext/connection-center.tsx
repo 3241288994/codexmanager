@@ -9,7 +9,12 @@ import { getAppErrorMessage } from "@/lib/api/transport";
 import { buildLabContextRecoveryPlan } from "@/lib/labcontext-recovery";
 import type {
   LabContextConnectionStatus,
+  LabContextRecoveryStatus,
   LabContextRouterProvider,
+} from "@/lib/api/labcontext-router-client";
+import {
+  getLabContextRecoveryStatus,
+  requestLabContextRepair,
 } from "@/lib/api/labcontext-router-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +79,8 @@ export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry
   const [expanded, setExpanded] = useState(true);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [repairCopyState, setRepairCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [repairStatus, setRepairStatus] = useState<LabContextRecoveryStatus | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
   const readySeen = useRef(false);
   const overall = status?.overall;
 
@@ -90,6 +97,28 @@ export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry
 
   const displayExpanded = overall !== "ready" || expanded;
   const recoveryPlan = useMemo(() => buildLabContextRecoveryPlan(status), [status]);
+  const repairInProgress = ["queued", "diagnosing", "restarting", "verifying"].includes(repairStatus?.phase || "");
+
+  useEffect(() => {
+    if (!repairInProgress) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void getLabContextRecoveryStatus()
+        .then((next) => {
+          if (cancelled) return;
+          setRepairStatus(next);
+          setRepairError(null);
+          if (["succeeded", "failed"].includes(next.phase)) onRetry();
+        })
+        .catch(() => {
+          // Router 会在受控重启期间短暂离线；保持当前阶段并继续轮询。
+        });
+    }, 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [repairInProgress, onRetry]);
 
   const checks = useMemo<ConnectionCheck[]>(() => {
     if (!status) return [];
@@ -166,14 +195,26 @@ export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry
   };
 
   const copyRepairCommand = async () => {
-    if (!recoveryPlan) return;
+    const command = repairStatus?.command || recoveryPlan?.command;
+    if (!command) return;
     try {
-      await navigator.clipboard.writeText(recoveryPlan.command);
+      await navigator.clipboard.writeText(command);
       setRepairCopyState("copied");
     } catch {
       setRepairCopyState("failed");
     }
     window.setTimeout(() => setRepairCopyState("idle"), 1800);
+  };
+
+  const runRepair = async () => {
+    setRepairError(null);
+    try {
+      const next = await requestLabContextRepair();
+      setRepairStatus(next);
+      if (["succeeded", "failed"].includes(next.phase)) onRetry();
+    } catch (repairRequestError) {
+      setRepairError(getAppErrorMessage(repairRequestError));
+    }
   };
 
   const headline = isLoading
@@ -253,23 +294,39 @@ export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry
               })}
             </div>
           )}
-          {recoveryPlan ? (
-            <div className="grid gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          {recoveryPlan || (repairStatus && repairStatus.phase !== "idle") || repairError ? (
+            <div className={`grid gap-3 rounded-xl border p-3.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center ${repairStatus?.phase === "succeeded" ? "border-emerald-500/25 bg-emerald-500/5" : repairStatus?.phase === "failed" || repairError ? "border-destructive/25 bg-destructive/5" : "border-amber-500/25 bg-amber-500/5"}`}>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  <Wrench className="size-4 text-amber-600" />
-                  {recoveryPlan.title}
+                  {repairStatus?.phase === "succeeded" ? <CheckCircle2 className="size-4 text-emerald-600" /> : <Wrench className="size-4 text-amber-600" />}
+                  {repairStatus?.summary || recoveryPlan?.title || "一键修复未能启动"}
                 </div>
-                <p className="mt-1.5 break-words text-xs leading-5 text-muted-foreground">{recoveryPlan.summary}</p>
-                <ol className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
-                  {recoveryPlan.steps.map((step, index) => <li key={step}>{index + 1}. {step}</li>)}
-                </ol>
-                <code className="mt-2 block w-fit max-w-full overflow-x-auto rounded-md bg-background/80 px-2.5 py-1.5 text-xs">{recoveryPlan.command}</code>
+                <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                  {repairError || repairStatus?.detail || recoveryPlan?.summary}
+                </p>
+                {repairStatus?.suggestions?.length ? (
+                  <ol className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
+                    {repairStatus.suggestions.map((step, index) => <li key={step}>{index + 1}. {step}</li>)}
+                  </ol>
+                ) : !repairStatus && recoveryPlan ? (
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">点击后会先做安全诊断；只有检查通过才会重启，无法处理时会直接显示具体原因。</p>
+                ) : null}
+                {repairStatus?.reasonCode ? <p className="mt-2 font-mono text-[11px] text-muted-foreground">原因代码：{repairStatus.reasonCode}</p> : null}
               </div>
-              <Button variant="outline" size="sm" onClick={copyRepairCommand}>
-                <Copy />
-                {repairCopyState === "copied" ? "已复制" : repairCopyState === "failed" ? "复制失败" : "复制修复命令"}
-              </Button>
+              <div className="flex flex-wrap gap-2 lg:justify-end">
+                {repairStatus?.command || recoveryPlan?.command ? (
+                  <Button variant="outline" size="sm" onClick={copyRepairCommand}>
+                    <Copy />
+                    {repairCopyState === "copied" ? "已复制" : repairCopyState === "failed" ? "复制失败" : "复制命令"}
+                  </Button>
+                ) : null}
+                {repairStatus?.phase !== "succeeded" ? (
+                  <Button size="sm" onClick={runRepair} disabled={repairInProgress}>
+                    {repairInProgress ? <CircleDashed className="animate-spin motion-reduce:animate-none" /> : <Wrench />}
+                    {repairInProgress ? "正在修复" : repairStatus?.phase === "failed" || repairError ? "再次修复" : "一键修复"}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           ) : null}
           <div className="flex flex-col gap-2 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
