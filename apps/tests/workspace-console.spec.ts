@@ -320,6 +320,8 @@ test("the maintained account, analytics, session, and LabContext routes load thr
   await expect(page.getByText("路径直读无需注册：")).toBeVisible();
   await expect(page.getByRole("button", { name: "本地电脑" }).first()).toBeDisabled();
   await expect(page.getByText("LabContext 连接需要处理", { exact: true })).toBeVisible();
+  await expect(page.getByText("连接链路需要恢复", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "复制修复命令" })).toBeVisible();
   await expect(page.getByText("Example Research", { exact: true })).toBeVisible();
   await expect(page.getByText("模型可见工具", { exact: true })).toBeVisible();
 

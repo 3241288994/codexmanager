@@ -91,6 +91,8 @@ Provider、SSH、Router 和 Tunnel。可随时获取分层诊断：
 
 ```bash
 labcontext status
+labcontext doctor
+labcontext repair
 ```
 
 `status` 不只检查端口，还会核对 Provider 身份与最低版本、执行 MCP 初始化、读取工具清单、调用一次
@@ -99,6 +101,16 @@ labcontext status
 token 或其他凭据。可用 `LABCONTEXT_STATUS_FILE`、`LABCONTEXT_TUNNEL_HEALTH_URL` 与
 `LABCONTEXT_DASHBOARD_URL` 调整对应地址。local Provider、SSH 或 Tunnel 异常退出时，Router 与连接
 中心会继续运行，启动器采用有上限的退避自动重试；因此可以看见真实错误，而不是整套服务反复消失。
+
+当 Router 仍在但某个子链路已经失效时，重复执行裸 `labcontext` 不会启动第二套进程。此时：
+
+- `labcontext doctor` 会真实执行 SSH 登录检查；桥接未运行时还会单独验证反向转发端口，因此能够区分认证失败、超时、依赖缺失和远端端口被旧会话占用；
+- `labcontext repair` 会先完成安全检查，只有检查通过才会停止已验证的旧监督器，并用当前配置重建完整链路；
+- `labcontext restart` 无条件重新加载当前配置，`labcontext stop` 则只做干净退出；两者都拒绝向无法验证为 LabContext 启动器的 PID 发信号。
+
+SSH 主机可以填写 `~/.ssh/config` 中的别名。启动器会沿用该别名的 `HostName`、`User`、密钥、
+跳板机和算法设置；如果别名已经声明了相同端口的 `LocalForward` / `RemoteForward`，不会再追加重复转发。
+不要把 `LABCONTEXT_SSH_CONFIG_FILE=/dev/null` 与依赖 SSH 别名的配置同时使用。
 
 ## ChatGPT 中的调用方式
 
@@ -131,7 +143,9 @@ Codex 会话衔接。统一 Router 要求 Provider 至少为 `0.7.0`，并且提
 浏览器打开 `http://127.0.0.1:48761/labcontext/` 时会探测
 `http://127.0.0.1:1460/api/status`。页面内置的连接中心分别显示 Router、Provider、SSH 子进程和
 OpenAI Tunnel：全部通过后自动收起并进入正常工作区界面，出现降级或失败时保持展开，支持重新检测
-和复制脱敏诊断。如果 `local` Provider 的 MCP 和 admin 都可用，页面会自动解锁“本地电脑”；
+和复制脱敏诊断。降级时还会根据失败层级显示修复建议与可复制命令。网页不会直接终止本机进程：
+同一 Web UI 可能来自服务器转发，自动执行容易修错机器；实际恢复由本机 `labcontext repair` 完成。
+如果 `local` Provider 的 MCP 和 admin 都可用，页面会自动解锁“本地电脑”；
 不需要切换到 Tauri 桌面版。桌面版仍保留原生目录选择器，Web 版则要求填写运行 local Provider
 的电脑能够访问的绝对路径。
 
@@ -144,6 +158,9 @@ Router。不要使用通配 Origin，也不要把 `1460`、Provider 的 `/admin`
 ```bash
 labcontext doctor
 labcontext status
+labcontext repair
+labcontext restart
+labcontext stop
 curl -fsS http://127.0.0.1:1460/healthz
 curl -fsS http://127.0.0.1:1460/api/status
 ```

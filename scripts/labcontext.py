@@ -111,6 +111,7 @@ cors_origins = ["http://127.0.0.1:48761", "http://localhost:48761"]
             f"LABCONTEXT_ENABLE_SSH={'1' if enable_ssh else '0'}",
             f"LABCONTEXT_SSH_HOST={args.ssh_host or ''}",
             "LABCONTEXT_SSH_BATCH_MODE=1",
+            "LABCONTEXT_SSH_CONNECT_TIMEOUT=8",
             "LABCONTEXT_SSH_SERVER_ALIVE_INTERVAL=30",
             "LABCONTEXT_SSH_SERVER_ALIVE_COUNT_MAX=3",
             "LABCONTEXT_SERVER_MCP_LOCAL_PORT=1455",
@@ -176,6 +177,25 @@ def doctor(config_path: Path, values: dict[str, str]) -> int:
         if not values.get("LABCONTEXT_SSH_HOST"):
             fail("LABCONTEXT_ENABLE_SSH=1 requires LABCONTEXT_SSH_HOST")
         print(f"SSH bridge: configured ({values['LABCONTEXT_SSH_HOST']})")
+        ok, detail = probe_ssh(values)
+        if not ok:
+            print(f"SSH connection: failed ({detail})", file=sys.stderr)
+            print_ssh_recovery_hint(values)
+            return 2
+        print(f"SSH connection: ok ({detail})")
+        ssh_runtime = runtime_component(values, "ssh-bridge")
+        if not ssh_runtime or ssh_runtime.get("status") != "running":
+            forwarding_ok, forwarding_detail = probe_ssh_remote_forward(values)
+            if not forwarding_ok:
+                print(f"SSH reverse forwarding: failed ({forwarding_detail})", file=sys.stderr)
+                print(
+                    "recovery: the remote listen port may still belong to an older SSH session; "
+                    "inspect that session or choose another LABCONTEXT_SERVER_PROXY_REMOTE_PORT, then run labcontext repair",
+                    file=sys.stderr,
+                )
+                return 2
+            if forwarding_detail:
+                print(f"SSH reverse forwarding: ok ({forwarding_detail})")
     else:
         print("SSH bridge: disabled")
     if parse_bool(values.get("LABCONTEXT_ENABLE_TUNNEL")):
@@ -191,12 +211,11 @@ def doctor(config_path: Path, values: dict[str, str]) -> int:
     return 0
 
 
-def ssh_command(values: dict[str, str]) -> list[str]:
+def ssh_option_command(values: dict[str, str]) -> list[str]:
     command = [require_program("ssh")]
     config_file = values.get("LABCONTEXT_SSH_CONFIG_FILE")
     if config_file:
         command.extend(["-F", config_file])
-    command.extend(["-N", "-o", "ExitOnForwardFailure=yes"])
     if parse_bool(values.get("LABCONTEXT_SSH_BATCH_MODE"), default=True):
         command.extend(["-o", "BatchMode=yes"])
     alive_interval = values.get("LABCONTEXT_SSH_SERVER_ALIVE_INTERVAL", "30")
@@ -208,21 +227,146 @@ def ssh_command(values: dict[str, str]) -> list[str]:
     identity = values.get("LABCONTEXT_SSH_IDENTITY_FILE")
     if identity:
         command.extend(["-i", identity])
+    return command
+
+
+def _forward_port(value: str) -> str:
+    endpoint = value.strip().split()[0]
+    return endpoint.rsplit(":", 1)[-1].strip("[]")
+
+
+def ssh_config_forwardings(values: dict[str, str]) -> tuple[set[str], set[str]]:
+    host = values.get("LABCONTEXT_SSH_HOST", "").strip()
+    if not host:
+        return set(), set()
+    command = ssh_option_command(values)
+    command.extend(["-G", host])
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set(), set()
+    if result.returncode != 0:
+        return set(), set()
+    local: set[str] = set()
+    remote: set[str] = set()
+    for raw_line in result.stdout.splitlines():
+        key, _, value = raw_line.partition(" ")
+        if key == "localforward" and value:
+            local.add(_forward_port(value))
+        elif key == "remoteforward" and value:
+            remote.add(_forward_port(value))
+    return local, remote
+
+
+def ssh_command(values: dict[str, str]) -> list[str]:
+    command = ssh_option_command(values)
+    command.extend(["-N", "-o", "ExitOnForwardFailure=yes"])
+    configured_local, configured_remote = ssh_config_forwardings(values)
     local_mcp = values.get("LABCONTEXT_SERVER_MCP_LOCAL_PORT", "1455")
     remote_mcp = values.get("LABCONTEXT_SERVER_MCP_REMOTE_PORT", "1455")
-    command.extend(["-L", f"127.0.0.1:{local_mcp}:127.0.0.1:{remote_mcp}"])
+    if local_mcp not in configured_local:
+        command.extend(["-L", f"127.0.0.1:{local_mcp}:127.0.0.1:{remote_mcp}"])
     local_web = values.get("LABCONTEXT_SERVER_WEB_LOCAL_PORT")
     remote_web = values.get("LABCONTEXT_SERVER_WEB_REMOTE_PORT", "48761")
-    if local_web:
+    if local_web and local_web not in configured_local:
         command.extend(["-L", f"127.0.0.1:{local_web}:127.0.0.1:{remote_web}"])
     remote_proxy = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT")
     local_proxy = values.get("LABCONTEXT_LOCAL_PROXY_PORT")
     if bool(remote_proxy) != bool(local_proxy):
         fail("reverse proxy forwarding requires both LABCONTEXT_SERVER_PROXY_REMOTE_PORT and LABCONTEXT_LOCAL_PROXY_PORT")
-    if remote_proxy and local_proxy:
+    if remote_proxy and local_proxy and remote_proxy not in configured_remote:
         command.extend(["-R", f"127.0.0.1:{remote_proxy}:127.0.0.1:{local_proxy}"])
     command.append(values["LABCONTEXT_SSH_HOST"])
     return command
+
+
+def probe_ssh(values: dict[str, str]) -> tuple[bool, str]:
+    host = values.get("LABCONTEXT_SSH_HOST", "").strip()
+    if not host:
+        return False, "SSH host is not configured"
+    command = ssh_option_command(values)
+    command.extend([
+        "-o", "ClearAllForwardings=yes",
+        "-o", f"ConnectTimeout={values.get('LABCONTEXT_SSH_CONNECT_TIMEOUT', '8')}",
+        host,
+        "true",
+    ])
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "connection timed out"
+    except OSError as exc:
+        return False, str(exc)
+    if result.returncode == 0:
+        return True, host
+    lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
+    detail = lines[-1] if lines else f"ssh exited with status {result.returncode}"
+    return False, detail.replace(str(Path.home()), "~")
+
+
+def probe_ssh_remote_forward(values: dict[str, str]) -> tuple[bool, str]:
+    remote_proxy = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT")
+    local_proxy = values.get("LABCONTEXT_LOCAL_PROXY_PORT")
+    if not remote_proxy and not local_proxy:
+        return True, "not configured"
+    if not remote_proxy or not local_proxy:
+        return False, "both reverse proxy ports must be configured"
+    configured_local, configured_remote = ssh_config_forwardings(values)
+    if configured_local or configured_remote:
+        return True, "declared by SSH config; standalone port probe skipped"
+    host = values["LABCONTEXT_SSH_HOST"]
+    command = ssh_option_command(values)
+    command.extend([
+        "-o", f"ConnectTimeout={values.get('LABCONTEXT_SSH_CONNECT_TIMEOUT', '8')}",
+        "-o", "ExitOnForwardFailure=yes",
+        "-R", f"127.0.0.1:{remote_proxy}:127.0.0.1:{local_proxy}",
+        host,
+        "true",
+    ])
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "forwarding probe timed out"
+    except OSError as exc:
+        return False, str(exc)
+    if result.returncode == 0:
+        return True, f"remote 127.0.0.1:{remote_proxy} is available"
+    lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
+    detail = lines[-1] if lines else f"ssh exited with status {result.returncode}"
+    return False, detail.replace(str(Path.home()), "~")
+
+
+def print_ssh_recovery_hint(values: dict[str, str]) -> None:
+    host = values.get("LABCONTEXT_SSH_HOST", "your-server")
+    print("recovery:", file=sys.stderr)
+    if values.get("LABCONTEXT_SSH_CONFIG_FILE") == "/dev/null":
+        print(
+            "  launcher.env disables ~/.ssh/config; SSH aliases, ProxyJump, and host-specific algorithms are ignored",
+            file=sys.stderr,
+        )
+    print(
+        f"  verify: ssh -o ClearAllForwardings=yes {shlex.quote(host)} true",
+        file=sys.stderr,
+    )
+    print("  after correcting launcher.env, run: labcontext repair", file=sys.stderr)
 
 
 def wait_for_router(address: tuple[str, int], process: subprocess.Popen[bytes]) -> None:
@@ -358,6 +502,100 @@ def show_status(config_path: Path) -> int:
         fail(f"LabContext Router is not reachable at {router_base_url(address)}")
     print(json.dumps(status, ensure_ascii=False, indent=2))
     return 0
+
+
+def read_runtime_status(path: Path) -> dict[str, object] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def runtime_component(values: dict[str, str], component_id: str) -> dict[str, object] | None:
+    runtime = read_runtime_status(runtime_status_path(values))
+    components = runtime.get("components") if runtime else None
+    if not isinstance(components, list):
+        return None
+    return next(
+        (item for item in components if isinstance(item, dict) and item.get("id") == component_id),
+        None,
+    )
+
+
+def process_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def process_is_labcontext_launcher(pid: int) -> bool:
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    command = result.stdout.strip().lower()
+    return bool(command) and "labcontext" in command and "labcontext_router" not in command
+
+
+def stop_running_stack(config_path: Path, values: dict[str, str]) -> bool:
+    config = load_config(config_path)
+    address = parse_listen_addr(config.listen_addr)
+    status_path = runtime_status_path(values)
+    runtime = read_runtime_status(status_path)
+    launcher_pid = runtime.get("launcherPid") if runtime else None
+    if not isinstance(launcher_pid, int) or launcher_pid <= 1 or not process_is_alive(launcher_pid):
+        router_status = fetch_router_status(address)
+        if router_status:
+            router = router_status.get("router")
+            router_pid = router.get("pid", "unknown") if isinstance(router, dict) else "unknown"
+            fail(
+                "Router is running but its launcher cannot be verified; "
+                f"inspect PID {router_pid} before stopping it"
+            )
+        print("labcontext: stack is not running")
+        return False
+    if not process_is_labcontext_launcher(launcher_pid):
+        fail(f"refusing to signal PID {launcher_pid}: it is not a verified labcontext launcher")
+    print(f"labcontext: stopping existing launcher PID {launcher_pid}")
+    os.kill(launcher_pid, signal.SIGTERM)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if not process_is_alive(launcher_pid) and not port_is_open(address):
+            print("labcontext: previous stack stopped cleanly")
+            return True
+        time.sleep(0.1)
+    fail(
+        f"launcher PID {launcher_pid} did not stop cleanly within 10 seconds; "
+        "no force kill was attempted"
+    )
+
+
+def repair(config_path: Path, values: dict[str, str]) -> int:
+    config = load_config(config_path)
+    address = parse_listen_addr(config.listen_addr)
+    status = fetch_router_status(address)
+    if status and status.get("overall") == "ready":
+        print("labcontext: all configured components already passed real capability checks")
+        return 0
+    print("labcontext: validating configuration before recovery")
+    validation = doctor(config_path, values)
+    if validation != 0:
+        print("labcontext: repair stopped before changing running processes", file=sys.stderr)
+        return validation
+    stop_running_stack(config_path, values)
+    print("labcontext: starting a fresh stack with the current configuration")
+    return run(config_path, values)
 
 
 def stop_processes(processes: list[tuple[str, subprocess.Popen[bytes]]]) -> None:
@@ -527,6 +765,9 @@ def main() -> int:
     init_parser.add_argument("--force", action="store_true")
     subparsers.add_parser("doctor", help="validate configuration and dependencies")
     subparsers.add_parser("status", help="show layered runtime and connection diagnostics")
+    subparsers.add_parser("repair", help="validate, stop a degraded stack, and restart it cleanly")
+    subparsers.add_parser("restart", help="stop the current stack and start it with current configuration")
+    subparsers.add_parser("stop", help="stop the current supervised stack cleanly")
     args = parser.parse_args()
     values = load_env(args.env_file.expanduser())
     secret_env_file = values.get("LABCONTEXT_SECRET_ENV_FILE")
@@ -542,6 +783,14 @@ def main() -> int:
         return doctor(config_path, values)
     if args.command == "status":
         return show_status(config_path)
+    if args.command == "repair":
+        return repair(config_path, values)
+    if args.command == "restart":
+        stop_running_stack(config_path, values)
+        return run(config_path, values)
+    if args.command == "stop":
+        stop_running_stack(config_path, values)
+        return 0
     return run(config_path, values)
 
 

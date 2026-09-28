@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, CircleDashed,
-  Copy, Laptop, Network, RefreshCw, Server, ShieldCheck, Terminal,
+  Copy, Laptop, Network, RefreshCw, Server, ShieldCheck, Terminal, Wrench,
 } from "lucide-react";
 import { getAppErrorMessage } from "@/lib/api/transport";
+import { buildLabContextRecoveryPlan } from "@/lib/labcontext-recovery";
 import type {
   LabContextConnectionStatus,
   LabContextRouterProvider,
@@ -72,6 +73,7 @@ function StateIcon({ state }: { state: CheckState }) {
 export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry }: ConnectionCenterProps) {
   const [expanded, setExpanded] = useState(true);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [repairCopyState, setRepairCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const readySeen = useRef(false);
   const overall = status?.overall;
 
@@ -87,6 +89,7 @@ export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry
   }, [overall]);
 
   const displayExpanded = overall !== "ready" || expanded;
+  const recoveryPlan = useMemo(() => buildLabContextRecoveryPlan(status), [status]);
 
   const checks = useMemo<ConnectionCheck[]>(() => {
     if (!status) return [];
@@ -160,6 +163,17 @@ export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry
       setCopyState("failed");
     }
     window.setTimeout(() => setCopyState("idle"), 1800);
+  };
+
+  const copyRepairCommand = async () => {
+    if (!recoveryPlan) return;
+    try {
+      await navigator.clipboard.writeText(recoveryPlan.command);
+      setRepairCopyState("copied");
+    } catch {
+      setRepairCopyState("failed");
+    }
+    window.setTimeout(() => setRepairCopyState("idle"), 1800);
   };
 
   const headline = isLoading
@@ -239,6 +253,25 @@ export function ConnectionCenter({ status, error, isLoading, isFetching, onRetry
               })}
             </div>
           )}
+          {recoveryPlan ? (
+            <div className="grid gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Wrench className="size-4 text-amber-600" />
+                  {recoveryPlan.title}
+                </div>
+                <p className="mt-1.5 break-words text-xs leading-5 text-muted-foreground">{recoveryPlan.summary}</p>
+                <ol className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
+                  {recoveryPlan.steps.map((step, index) => <li key={step}>{index + 1}. {step}</li>)}
+                </ol>
+                <code className="mt-2 block w-fit max-w-full overflow-x-auto rounded-md bg-background/80 px-2.5 py-1.5 text-xs">{recoveryPlan.command}</code>
+              </div>
+              <Button variant="outline" size="sm" onClick={copyRepairCommand}>
+                <Copy />
+                {repairCopyState === "copied" ? "已复制" : repairCopyState === "failed" ? "复制失败" : "复制修复命令"}
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-col gap-2 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <span>“端口存在”不再等于“连接成功”：只有身份、版本、工具清单和真实调用全部通过才会显示完全可用。</span>
             {status?.checkedAt ? <span className="shrink-0">检查于 {new Date(status.checkedAt).toLocaleTimeString()}</span> : null}

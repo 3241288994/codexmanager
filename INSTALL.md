@@ -111,6 +111,7 @@ Tunnel 是私有 MCP 与开发测试通道，不是公共插件发布地址。�
 # Router：静态检查 + 真实 MCP/Provider/Tunnel 分层状态
 labcontext doctor
 labcontext status
+labcontext repair
 
 # Web 与连接中心
 curl -fsS http://127.0.0.1:48761/__auth_status

@@ -113,6 +113,12 @@ ChatGPT：
 
 日常使用只需要记住 `labcontext`；下面的组件可以分别安装、升级和替换：
 
+```bash
+labcontext status   # 分层状态
+labcontext doctor   # 真实验证 SSH 与依赖
+labcontext repair   # 降级时安全重建链路
+```
+
 ```text
 ChatGPT 网页版
       │

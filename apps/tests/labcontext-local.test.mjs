@@ -10,11 +10,12 @@ async function readSource(relativePath) {
 }
 
 test("本地工作区通过桌面壳或可选回环 Router 暴露", async () => {
-  const [client, routerClient, page, connectionCenter, hook, webCommands, registry] = await Promise.all([
+  const [client, routerClient, page, connectionCenter, recovery, hook, webCommands, registry] = await Promise.all([
     readSource("src/lib/api/labcontext-client.ts"),
     readSource("src/lib/api/labcontext-router-client.ts"),
     readSource("src/app/labcontext/page.tsx"),
     readSource("src/components/labcontext/connection-center.tsx"),
+    readSource("src/lib/labcontext-recovery.ts"),
     readSource("src/hooks/useLabContextWorkspace.ts"),
     readSource("src/lib/api/transport-web-commands.ts"),
     readSource("src-tauri/src/commands/registry.rs"),
@@ -40,7 +41,10 @@ test("本地工作区通过桌面壳或可选回环 Router 暴露", async () => 
   assert.match(page, /<ConnectionCenter/);
   assert.match(connectionCenter, /端口存在/);
   assert.match(connectionCenter, /复制诊断/);
+  assert.match(connectionCenter, /复制修复命令/);
   assert.match(connectionCenter, /真实调用/);
+  assert.match(recovery, /labcontext doctor && labcontext repair/);
+  assert.match(recovery, /SSH 桥接没有建立成功/);
   assert.match(routerClient, /\/api\/status/);
   assert.match(page, /readOnly=\{workspaceForm\.location === "local" && isDesktopRuntime\}/);
 });

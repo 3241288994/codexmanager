@@ -13,7 +13,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
-from labcontext import process_status, ssh_command  # noqa: E402
+from labcontext import probe_ssh, probe_ssh_remote_forward, process_status, ssh_command  # noqa: E402
 from labcontext_router import (  # noqa: E402
     LabContextRouter,
     ProviderConfig,
@@ -259,20 +259,64 @@ class LauncherTest(unittest.TestCase):
             self.assertIn("LABCONTEXT_SSH_HOST=research-host", environment)
 
     def test_ssh_command_preserves_identity_keepalive_and_reverse_proxy(self) -> None:
-        command = ssh_command({
-            "LABCONTEXT_SSH_HOST": "research-host",
-            "LABCONTEXT_SSH_IDENTITY_FILE": "/private/key",
-            "LABCONTEXT_SSH_CONFIG_FILE": "/dev/null",
-            "LABCONTEXT_SERVER_MCP_LOCAL_PORT": "1455",
-            "LABCONTEXT_SERVER_MCP_REMOTE_PORT": "1455",
-            "LABCONTEXT_SERVER_WEB_LOCAL_PORT": "48761",
-            "LABCONTEXT_SERVER_WEB_REMOTE_PORT": "48761",
-            "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
-            "LABCONTEXT_LOCAL_PROXY_PORT": "7897",
-        })
+        with mock.patch("labcontext.ssh_config_forwardings", return_value=(set(), set())):
+            command = ssh_command({
+                "LABCONTEXT_SSH_HOST": "research-host",
+                "LABCONTEXT_SSH_IDENTITY_FILE": "/private/key",
+                "LABCONTEXT_SSH_CONFIG_FILE": "/dev/null",
+                "LABCONTEXT_SERVER_MCP_LOCAL_PORT": "1455",
+                "LABCONTEXT_SERVER_MCP_REMOTE_PORT": "1455",
+                "LABCONTEXT_SERVER_WEB_LOCAL_PORT": "48761",
+                "LABCONTEXT_SERVER_WEB_REMOTE_PORT": "48761",
+                "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
+                "LABCONTEXT_LOCAL_PROXY_PORT": "7897",
+            })
         self.assertIn("/private/key", command)
         self.assertIn("ServerAliveInterval=30", command)
         self.assertIn("127.0.0.1:17987:127.0.0.1:7897", command)
+
+    def test_ssh_command_reuses_matching_forwardings_from_alias(self) -> None:
+        with mock.patch(
+            "labcontext.ssh_config_forwardings",
+            return_value=({"1455", "48761"}, {"17987"}),
+        ):
+            command = ssh_command({
+                "LABCONTEXT_SSH_HOST": "research-host",
+                "LABCONTEXT_SERVER_MCP_LOCAL_PORT": "1455",
+                "LABCONTEXT_SERVER_MCP_REMOTE_PORT": "1455",
+                "LABCONTEXT_SERVER_WEB_LOCAL_PORT": "48761",
+                "LABCONTEXT_SERVER_WEB_REMOTE_PORT": "48761",
+                "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
+                "LABCONTEXT_LOCAL_PROXY_PORT": "7897",
+            })
+        self.assertNotIn("-L", command)
+        self.assertNotIn("-R", command)
+        self.assertEqual(command[-1], "research-host")
+
+    def test_ssh_probe_disables_forwardings_and_reports_auth_failure(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["ssh"], returncode=255, stdout="", stderr="Permission denied (publickey).\n",
+        )
+        with mock.patch("labcontext.subprocess.run", return_value=result) as run:
+            ok, detail = probe_ssh({"LABCONTEXT_SSH_HOST": "research-host"})
+        self.assertFalse(ok)
+        self.assertIn("Permission denied", detail)
+        self.assertIn("ClearAllForwardings=yes", run.call_args.args[0])
+
+    def test_reverse_forward_probe_reports_remote_port_conflict(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["ssh"], returncode=255, stdout="",
+            stderr="Error: remote port forwarding failed for listen port 17987\n",
+        )
+        with mock.patch("labcontext.ssh_config_forwardings", return_value=(set(), set())), \
+                mock.patch("labcontext.subprocess.run", return_value=result):
+            ok, detail = probe_ssh_remote_forward({
+                "LABCONTEXT_SSH_HOST": "research-host",
+                "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
+                "LABCONTEXT_LOCAL_PROXY_PORT": "7897",
+            })
+        self.assertFalse(ok)
+        self.assertIn("remote port forwarding failed", detail)
 
 
 if __name__ == "__main__":
