@@ -17,19 +17,16 @@ from .config import AssetConfig, ServerConfig, WorkspaceConfig
 from .index import _connect
 
 
-TEXT_SUFFIXES = {
-    ".c", ".cc", ".cpp", ".csv", ".go", ".java", ".json", ".jsonl", ".md",
-    ".py", ".r", ".rs", ".sh", ".tex", ".toml", ".ts", ".tsx", ".txt",
-    ".yaml", ".yml",
-}
-INSPECT_VIEWS = {"outline", "search", "lines", "json_pointer", "full_bounded"}
-MAX_INSPECT_FILE_BYTES = 10_000_000
-SENSITIVE_FILE_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
-SENSITIVE_FILE_NAMES = {"id_rsa", "id_ed25519", "credentials.json", "secrets.json"}
-DEFAULT_BLOCKED_PARTS = {
-    ".git", ".env", ".venv", "__pycache__", "checkpoints", "datasets",
-    "node_modules", "site-packages", "tmp", "wandb",
-}
+from .file_types import (
+    TEXT_SUFFIXES, INSPECT_VIEWS, MAX_INSPECT_FILE_BYTES,
+    SENSITIVE_FILE_SUFFIXES, SENSITIVE_FILE_NAMES, DEFAULT_BLOCKED_PARTS,
+    readable_file, is_sensitive_file,
+)
+from .file_reader import (
+    bound_response, inspect_supported_file, search_segments, file_sha256, read_evidence_content,
+    _json_outline, _json_pointer_value,
+)
+
 SCOPE_KIND_MAP = {
     "code": "source_code",
     "docs": "project_docs",
@@ -117,7 +114,7 @@ def _is_denied(config: ServerConfig, workspace: WorkspaceConfig, path: Path) -> 
         relative_workspace = path.resolve().relative_to(workspace.root)
     except (OSError, ValueError):
         return True
-    if any(part in DEFAULT_BLOCKED_PARTS for part in relative_workspace.parts):
+    if any(part.casefold() in DEFAULT_BLOCKED_PARTS for part in relative_workspace.parts) or is_sensitive_file(path):
         return True
     try:
         relative_project = path.resolve().relative_to(config.project.root).as_posix()
@@ -170,7 +167,7 @@ def _candidate_files(config: ServerConfig, workspace: WorkspaceConfig, kinds: se
                 if base.is_dir():
                     paths = chain(paths, base.rglob("*"))
             for path in paths:
-                if path in seen or not path.is_file() or path.suffix.lower() not in TEXT_SUFFIXES:
+                if path in seen or not path.is_file() or not readable_file(path):
                     continue
                 if _is_denied(config, workspace, path) or not _matches_asset(path, workspace, asset):
                     continue
@@ -185,20 +182,26 @@ def _ensure_evidence_table(config: ServerConfig) -> None:
             kind TEXT NOT NULL, authority TEXT NOT NULL, start_line INTEGER, end_line INTEGER,
             content_sha256 TEXT NOT NULL, modified_at TEXT NOT NULL, created_at TEXT NOT NULL
         )""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS evidence_ref_locations (
+            evidence_ref TEXT PRIMARY KEY, location_json TEXT NOT NULL
+        )""")
 
 
 def register_evidence(
     config: ServerConfig, workspace: WorkspaceConfig, path: Path, kind: str,
     authority: str = "observed_artifact", start_line: int | None = None,
-    end_line: int | None = None,
+    end_line: int | None = None, source_location: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     resolved = path.resolve()
     if _is_denied(config, workspace, resolved) or not resolved.is_file():
         raise ValueError("evidence path is outside the permitted workspace")
-    raw = resolved.read_bytes()
-    content_sha256 = hashlib.sha256(raw).hexdigest()
+    if resolved.stat().st_size > MAX_INSPECT_FILE_BYTES:
+        raise ValueError("Evidence file exceeds the inspection limit")
+    content_sha256 = file_sha256(resolved)
     relative = resolved.relative_to(workspace.root).as_posix()
     identity = f"{workspace.workspace_id}\0{relative}\0{start_line}\0{end_line}\0{content_sha256}"
+    if source_location:
+        identity += "\0" + json.dumps(source_location, sort_keys=True)
     evidence_ref = "ev_" + hashlib.sha256(identity.encode()).hexdigest()[:24]
     modified_at = datetime.fromtimestamp(resolved.stat().st_mtime, timezone.utc).isoformat()
     _ensure_evidence_table(config)
@@ -210,9 +213,14 @@ def register_evidence(
             (evidence_ref, workspace.workspace_id, relative, kind, authority, start_line,
              end_line, content_sha256, modified_at, utc_now()),
         )
+        if source_location:
+            connection.execute(
+                "INSERT OR REPLACE INTO evidence_ref_locations VALUES (?,?)",
+                (evidence_ref, json.dumps(source_location, sort_keys=True)),
+            )
     return {
         "evidence_ref": evidence_ref, "kind": kind, "path": relative,
-        "location": {"start_line": start_line, "end_line": end_line},
+        "location": source_location or {"start_line": start_line, "end_line": end_line},
         "sha256": content_sha256, "modified_at": modified_at, "authority": authority,
     }
 
@@ -232,28 +240,41 @@ def search_evidence_data(
         tokens = [query.casefold()]
     matches: list[tuple[int, float, dict[str, Any]]] = []
     scanned = 0
+    skipped_size = 0
+    skipped_unreadable = 0
+    extraction_truncated = 0
     for path, asset in _candidate_files(config, workspace, kinds):
         if scanned >= 5000:
             break
         scanned += 1
         try:
             if path.stat().st_size > 2_000_000:
+                skipped_size += 1
                 continue
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        relative = path.relative_to(workspace.root).as_posix()
-        path_text = relative.casefold()
-        for index, line in enumerate(lines, start=1):
-            line_text = line.casefold()
-            score = sum(3 for token in tokens if token in line_text) + sum(1 for token in tokens if token in path_text)
-            if not score:
-                continue
-            start, end = max(1, index - 2), min(len(lines), index + 2)
-            record = register_evidence(config, workspace, path, asset.kind, asset.authority, start, end)
-            record["snippet"] = "\n".join(lines[start - 1:end])[:900]
-            matches.append((score, path.stat().st_mtime, record))
-            break
+            relative = path.relative_to(workspace.root).as_posix()
+            path_text = relative.casefold()
+            found = False
+            for text, source, clipped in search_segments(path):
+                extraction_truncated += int(clipped)
+                lines = text.splitlines()
+                for index, line in enumerate(lines, start=1):
+                    score = sum(3 for token in tokens if token in line.casefold()) + sum(1 for token in tokens if token in path_text)
+                    if not score:
+                        continue
+                    first, last = max(1, index - 2), min(len(lines), index + 2)
+                    location = {**source, "start_line": first, "end_line": last}
+                    record = register_evidence(
+                        config, workspace, path, asset.kind, asset.authority,
+                        first, last, source_location=location,
+                    )
+                    record["snippet"] = "\n".join(lines[first - 1:last])[:900]
+                    matches.append((score, path.stat().st_mtime, record))
+                    found = True
+                    break
+                if found:
+                    break
+        except (OSError, ValueError, UnicodeError):
+            skipped_unreadable += 1
     matches.sort(key=lambda item: (item[0], item[1]), reverse=True)
     results: list[dict[str, Any]] = []
     remaining = max(1000, config.project.max_response_bytes - 1200)
@@ -269,7 +290,10 @@ def search_evidence_data(
         "results": results,
         "coverage": {
             "files_scanned": scanned,
-            "truncated": scanned >= 5000 or len(results) < min(limit, len(matches)),
+            "files_skipped_size": skipped_size,
+            "files_skipped_unreadable": skipped_unreadable,
+            "extractions_truncated": extraction_truncated,
+            "truncated": scanned >= 5000 or extraction_truncated > 0 or len(results) < min(limit, len(matches)),
         },
     }
 
@@ -300,24 +324,30 @@ def get_evidence_data(
             if _is_denied(config, workspace, path) or not path.is_file():
                 results.append({"evidence_ref": evidence_ref, "status": "unavailable"})
                 continue
-            raw = path.read_bytes()
-            current_sha = hashlib.sha256(raw).hexdigest()
-            text = raw.decode("utf-8", errors="replace")
-            if detail == "structured" and path.suffix.lower() in {".json", ".yaml", ".yml", ".toml"}:
-                content = text[:budget]
-            elif detail == "full_bounded":
-                content = text[:budget]
-            else:
-                lines = text.splitlines()
-                start = row["start_line"] or 1
-                end = row["end_line"] or min(len(lines), start + 40)
-                content = "\n".join(lines[max(0, start - 1):end])[:budget]
+            location_row = connection.execute(
+                "SELECT location_json FROM evidence_ref_locations WHERE evidence_ref=?", (evidence_ref,),
+            ).fetchone()
+            location = json.loads(location_row["location_json"]) if location_row else {
+                "start_line": row["start_line"], "end_line": row["end_line"],
+            }
+            if path.stat().st_size > MAX_INSPECT_FILE_BYTES:
+                results.append({"evidence_ref": evidence_ref, "status": "unavailable"})
+                continue
+            current_sha = file_sha256(path)
+            status = "ok" if current_sha == row["content_sha256"] else "stale_reference"
+            content = ""
+            if status == "ok":
+                try:
+                    content = read_evidence_content(path, location if detail == "excerpt" else {}, budget)
+                except (OSError, ValueError):
+                    status = "unavailable"
+            content = content.encode("utf-8")[:budget].decode("utf-8", errors="ignore")
             budget -= len(content.encode("utf-8"))
             results.append({
-                "evidence_ref": evidence_ref, "status": "ok" if current_sha == row["content_sha256"] else "stale_reference",
+                "evidence_ref": evidence_ref, "status": status,
                 "workspace_id": workspace.workspace_id, "kind": row["kind"],
                 "authority": row["authority"], "path": row["relative_path"],
-                "location": {"start_line": row["start_line"], "end_line": row["end_line"]},
+                "location": location,
                 "indexed_sha256": row["content_sha256"], "current_sha256": current_sha,
                 "content": content,
             })
@@ -346,8 +376,8 @@ def _resolve_inspect_path(
     name = resolved.name.casefold()
     if name.startswith(".env") or name in SENSITIVE_FILE_NAMES or resolved.suffix.casefold() in SENSITIVE_FILE_SUFFIXES:
         raise ValueError("sensitive credential files cannot be inspected")
-    if resolved.suffix.casefold() not in TEXT_SUFFIXES:
-        raise ValueError("inspect_file supports configured text formats only")
+    if not readable_file(resolved):
+        raise ValueError("inspect_file does not support this file format")
     if resolved.stat().st_size > MAX_INSPECT_FILE_BYTES:
         raise ValueError(f"file exceeds the {MAX_INSPECT_FILE_BYTES} byte inspection limit")
     return resolved
@@ -357,188 +387,46 @@ def _asset_for_path(workspace: WorkspaceConfig, path: Path) -> AssetConfig | Non
     return next((asset for asset in _inferred_assets(workspace) if _matches_asset(path, workspace, asset)), None)
 
 
-def _json_outline(value: Any, depth: int = 0) -> Any:
-    if depth >= 2:
-        if isinstance(value, dict):
-            return {"type": "object", "key_count": len(value)}
-        if isinstance(value, list):
-            return {"type": "array", "length": len(value)}
-        return {"type": type(value).__name__}
-    if isinstance(value, dict):
-        return {
-            "type": "object", "key_count": len(value),
-            "keys": {
-                str(key)[:160]: _json_outline(item, depth + 1)
-                for key, item in list(value.items())[:40]
-            },
-            "keys_truncated": len(value) > 40,
-        }
-    if isinstance(value, list):
-        sample = [_json_outline(item, depth + 1) for item in value[:3]]
-        return {"type": "array", "length": len(value), "sample_shapes": sample}
-    return {"type": type(value).__name__}
-
-
-def _json_pointer_value(value: Any, pointer: str) -> Any:
-    if pointer == "":
-        return value
-    if not pointer.startswith("/") or len(pointer) > 1000:
-        raise ValueError("json_pointer must be empty or an RFC 6901 path beginning with /")
-    current = value
-    for raw_part in pointer[1:].split("/"):
-        part = raw_part.replace("~1", "/").replace("~0", "~")
-        if isinstance(current, dict):
-            if part not in current:
-                raise ValueError(f"json_pointer key not found: {part}")
-            current = current[part]
-        elif isinstance(current, list):
-            try:
-                index = int(part)
-            except ValueError as exc:
-                raise ValueError(f"json_pointer array index is invalid: {part}") from exc
-            if index < 0 or index >= len(current):
-                raise ValueError(f"json_pointer array index is out of range: {part}")
-            current = current[index]
-        else:
-            raise ValueError(f"json_pointer cannot descend through {type(current).__name__}")
-    return current
-
-
 def inspect_file_data(
     config: ServerConfig, path: str, workspace_id: str | None = None,
     view: str = "outline", query: str | None = None,
     start_line: int | None = None, end_line: int | None = None,
     json_pointer: str | None = None, max_chars: int = 8000,
+    start_page: int | None = None, end_page: int | None = None,
 ) -> dict[str, Any]:
-    """Inspect one exact, safe text file without requiring it to be search-indexed."""
+    """Inspect a supported file through the same parser as direct-path reads."""
     workspace = resolve_workspace(config, workspace_id)
-    view = str(view).strip().lower()
-    if view not in INSPECT_VIEWS:
-        raise ValueError(f"view must be one of: {', '.join(sorted(INSPECT_VIEWS))}")
-    response_cap = max(500, config.project.max_response_bytes - 2500)
-    max_chars = max(500, min(int(max_chars), 10_000, response_cap))
     resolved = _resolve_inspect_path(config, workspace, path)
-    raw = resolved.read_bytes()
-    text = raw.decode("utf-8", errors="replace")
-    lines = text.splitlines()
-    relative = resolved.relative_to(workspace.root).as_posix()
+    response_cap = max(500, config.project.max_response_bytes - 2500)
+    result = inspect_supported_file(
+        resolved, view, query, start_line, end_line, start_page, end_page,
+        json_pointer, min(max_chars, response_cap),
+    )
     asset = _asset_for_path(workspace, resolved)
     authority = asset.authority if asset else "observed_artifact"
     kind = asset.kind if asset else "workspace_file"
-    base = {
+    def evidence(location):
+        location = dict(location or {})
+        return register_evidence(
+            config, workspace, resolved, kind, authority,
+            location.get("start_line"), location.get("end_line"),
+            source_location=location,
+        )["evidence_ref"]
+    if result["view"] == "search":
+        for match in result.get("matches", []):
+            location = match.get("location") or (
+                {"start_page": match["page"], "end_page": match["page"]} if "page" in match else {}
+            )
+            match["evidence_ref"] = evidence(location)
+    else:
+        result["evidence_ref"] = evidence(result.get("location"))
+    result["file"]["modified_at"] = datetime.fromtimestamp(resolved.stat().st_mtime, timezone.utc).isoformat()
+    return bound_response({
         "resolved_workspace_id": workspace.workspace_id,
-        "path": relative,
-        "view": view,
-        "file": {
-            "suffix": resolved.suffix.casefold(), "size_bytes": len(raw),
-            "line_count": len(lines),
-            "modified_at": datetime.fromtimestamp(resolved.stat().st_mtime, timezone.utc).isoformat(),
-            "sha256": hashlib.sha256(raw).hexdigest(),
-        },
+        "path": resolved.relative_to(workspace.root).as_posix(),
         "kind": kind, "authority": authority,
-        "configured_asset": asset.asset_id if asset else None,
-    }
-
-    if view == "search":
-        needle = str(query or "").strip()
-        if not needle or len(needle) > 300:
-            raise ValueError("query must contain 1 to 300 characters for search view")
-        matches: list[dict[str, Any]] = []
-        remaining = max_chars
-        for index, line in enumerate(lines, start=1):
-            if needle.casefold() not in line.casefold():
-                continue
-            first, last = max(1, index - 2), min(len(lines), index + 2)
-            content = "\n".join(lines[first - 1:last])
-            content = content[:remaining]
-            if not content:
-                break
-            evidence = register_evidence(config, workspace, resolved, kind, authority, first, last)
-            matches.append({
-                "evidence_ref": evidence["evidence_ref"], "line": index,
-                "location": {"start_line": first, "end_line": last}, "content": content,
-            })
-            remaining -= len(content)
-            if len(matches) >= 12 or remaining <= 0:
-                break
-        return {
-            **base, "query": needle, "matches": matches,
-            "match_count_returned": len(matches),
-            "truncated": len(matches) >= 12 or remaining <= 0,
-        }
-
-    if view == "lines":
-        first = int(start_line or 1)
-        last = int(end_line or min(len(lines), first + 79))
-        if first < 1 or first > max(1, len(lines)) or last < first or last - first + 1 > 200:
-            raise ValueError("lines view requires a valid range of at most 200 lines")
-        last = min(last, len(lines))
-        content = "\n".join(lines[first - 1:last])[:max_chars]
-        evidence = register_evidence(config, workspace, resolved, kind, authority, first, last)
-        return {
-            **base, "location": {"start_line": first, "end_line": last},
-            "content": content, "evidence_ref": evidence["evidence_ref"],
-            "truncated": len(content) < len("\n".join(lines[first - 1:last])),
-        }
-
-    if view == "json_pointer":
-        if resolved.suffix.casefold() != ".json":
-            raise ValueError("json_pointer view requires a .json file")
-        try:
-            value = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"file is not valid JSON: {exc}") from exc
-        pointer = str(json_pointer if json_pointer is not None else "")
-        selected = _json_pointer_value(value, pointer)
-        content = json.dumps(selected, ensure_ascii=False, indent=2)
-        evidence = register_evidence(config, workspace, resolved, kind, authority)
-        return {
-            **base, "json_pointer": pointer, "content": content[:max_chars],
-            "selected_shape": _json_outline(selected), "evidence_ref": evidence["evidence_ref"],
-            "truncated": len(content) > max_chars,
-        }
-
-    if view == "outline":
-        suffix = resolved.suffix.casefold()
-        outline: Any
-        if suffix == ".json":
-            try:
-                outline = _json_outline(json.loads(text))
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"file is not valid JSON: {exc}") from exc
-        elif suffix == ".md":
-            headings = [
-                {"line": index, "level": len(match.group(1)), "title": match.group(2).strip()[:300]}
-                for index, line in enumerate(lines, start=1)
-                if (match := re.match(r"^(#{1,6})\s+(.+?)\s*$", line))
-            ]
-            outline = {"type": "markdown", "headings": headings[:60],
-                       "headings_truncated": len(headings) > 60}
-        else:
-            symbols = [
-                {"line": index, "text": line.strip()[:300]}
-                for index, line in enumerate(lines, start=1)
-                if re.match(r"^\s*(class|def|async\s+def|fn|struct|enum|interface|function)\s+", line)
-            ]
-            outline = {"type": "text", "symbols": symbols[:60],
-                       "symbols_truncated": len(symbols) > 60}
-        encoded = json.dumps(outline, ensure_ascii=False)
-        evidence = register_evidence(config, workspace, resolved, kind, authority)
-        return {
-            **base, "outline": outline, "evidence_ref": evidence["evidence_ref"],
-            "truncated": len(encoded) > max_chars,
-        }
-
-    content = text[:max_chars]
-    returned_lines = min(len(lines), content.count("\n") + (1 if content else 0))
-    evidence = register_evidence(
-        config, workspace, resolved, kind, authority, 1, max(1, returned_lines),
-    )
-    return {
-        **base, "location": {"start_line": 1, "end_line": returned_lines},
-        "content": content, "evidence_ref": evidence["evidence_ref"],
-        "truncated": len(text) > max_chars,
-    }
+        "configured_asset": asset.asset_id if asset else None, **result,
+    }, config.project.max_response_bytes)
 
 
 def _read_json(path: Path, max_bytes: int = 1_000_000) -> dict[str, Any] | None:

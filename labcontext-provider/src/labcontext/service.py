@@ -167,13 +167,13 @@ def build_server(config: ServerConfig) -> FastMCP:
         path: str, workspace_id: str | None = None, view: str = "outline",
         query: str | None = None, start_line: int | None = None,
         end_line: int | None = None, json_pointer: str | None = None,
-        max_chars: int = 8000,
+        max_chars: int = 8000, start_page: int | None = None, end_page: int | None = None,
     ) -> dict[str, Any]:
-        """Inspect one exact text file inside a registered workspace, even when it is not search-indexed. Use only when a concrete path is already known. view=outline returns Markdown headings, JSON shape, or code symbols; search returns bounded in-file matches; lines reads at most 200 lines; json_pointer selects one RFC 6901 JSON value; full_bounded reads from the start within the response budget. Dataset, checkpoint, credential, denied, binary, outside-workspace, oversized, glob and directory access are rejected. Prefer workspace-relative paths; an absolute path is accepted only when it resolves inside the selected workspace."""
+        """Inspect an exact file inside a registered workspace, even when not indexed. Uses the same formats as inspect_path: common code/config/log/text, HTML, PDF, DOCX, XLSX, PPTX and IPYNB. Views: auto, outline, search, lines (at most 200 extracted lines), full_bounded; JSON also supports json_pointer. PDF supports pages with 1-based start_page/end_page (at most 20 pages); scanned PDFs require OCR. Office text includes sheet/cell or slide labels, without running formulas, macros or notebook code. Prefer workspace-relative paths; absolute paths must remain inside this workspace. Credentials, denied paths and unsupported binaries remain blocked. Returns evidence references."""
         runtime.enforce("inspect_file")
         result = inspect_file_data(
             runtime.config(), path, workspace_id, view, query,
-            start_line, end_line, json_pointer, max_chars,
+            start_line, end_line, json_pointer, max_chars, start_page, end_page,
         )
         _audit("inspect_file", {
             "workspace_id": result["resolved_workspace_id"], "path": result["path"],
@@ -189,7 +189,7 @@ def build_server(config: ServerConfig) -> FastMCP:
         json_pointer: str | None = None, depth: int = 2,
         max_entries: int = 200, max_chars: int = 8000,
     ) -> dict[str, Any]:
-        """Inspect an absolute file or directory below registry.allowed_roots without registering a workspace. Use this when the user pastes an exact local/server path or asks for a quick one-off read. A directory returns a bounded tree (depth 1-3, at most 400 entries). Safe text and HTML files support auto, outline, search, lines, json_pointer where applicable, or full_bounded views. Text-based PDFs support auto, outline, search, pages, or full_bounded; use 1-based start_page/end_page to continue reading. Scanned PDFs report that OCR is required. Access is read-only and still rejects credentials, denied paths, unsupported binary files, oversized files and paths outside the configured roots."""
+        """Inspect an absolute file or directory below registry.allowed_roots without registering a workspace. Shares the inspect_file format registry: common code/config/log/text, HTML, PDF, DOCX, XLSX, PPTX and IPYNB. A directory returns a bounded tree (depth 1-3, at most 400 entries). Views: auto, outline, search, lines, full_bounded; JSON also supports json_pointer. PDF supports pages with 1-based start_page/end_page (at most 20 pages); scanned PDFs require OCR. Office text includes sheet/cell or slide labels, without running formulas, macros or notebook code. Credentials, denied paths, unsupported binaries and oversized files remain blocked."""
         runtime.enforce("inspect_path")
         result = inspect_path_data(
             runtime.config(), path, view, query, start_line, end_line,

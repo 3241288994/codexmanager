@@ -44,9 +44,22 @@ export CODEXMANAGER_LOCAL_LABCONTEXT_ADMIN_TOKEN_FILE=/absolute/private/path/adm
 
 这类请求不会修改 Provider 配置，也不会在项目中创建 `.labcontext` 文件。路径必须位于对应
 Provider 的 `registry.allowed_roots` 下；hybrid 模式应明确说“本地电脑”或“服务器”。目录只返回
-有限深度和有限条目，后续文件由模型按需读取，以控制内存和上下文占用。Provider 0.8.0 还支持
+有限深度和有限条目，后续文件由模型按需读取，以控制内存和上下文占用。Provider 还支持
 HTML 可见正文和文本型 PDF：PDF 默认返回有限页，可用 `start_page`/`end_page` 继续读取，或用
 `view=search` 定位关键词；扫描型 PDF 不会自动执行高成本 OCR，而会返回 `ocr_required=true`。
+
+Provider **0.9.0** 起，绝对路径直读 `inspect_path` 和工作区读取 `inspect_file`
+共用格式白名单与解析器。两者均支持常见源码、配置、日志、Markdown、CSV/TSV、HTML、
+文本型 PDF、DOCX、XLSX、PPTX 和 IPYNB，以及 README、Dockerfile、Makefile 等常见文件名。
+工作区 PDF 读取也可以使用 `view=pages` 和 `start_page`/`end_page`。
+
+Office 提取的是正文、单元格或幻灯片文字，不执行宏或公式；Notebook 只提取代码/Markdown
+及纯文本输出，不执行代码。图片、音视频、扫描件 OCR、旧版 DOC/XLS/PPT 和宏文件暂不支持。
+完整格式与限制见 [Provider 文件读取说明](../labcontext-provider/README.md#shared-file-readers-provider-090)。
+
+工作区搜索使用相同解析器，但仍受资产 include/exclude 和 2 MB 搜索输入上限约束；单文件
+读取上限为 10 MB。PDF 搜索证据保留页码，HTML/Office/Notebook 使用提取后的文本行号。
+本机与服务器应分别升级到 0.9.0，再刷新 ChatGPT Connector 工具元数据；无需重建 Web。
 
 Provider 是可选独立包，本机或服务器可以分别安装：
 

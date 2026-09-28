@@ -24,6 +24,7 @@ from labcontext import (  # noqa: E402
 from labcontext_router import (  # noqa: E402
     LabContextRouter,
     ProviderConfig,
+    ROUTER_VERSION,
     RouterConfig,
     RouterError,
     RouterServer,
@@ -143,6 +144,13 @@ class RouterTest(unittest.TestCase):
 
         local = self.router.call_tool("list_workspaces", {"source": "local"})["structuredContent"]
         self.assertEqual(local["default_workspace_id"], "shared")
+
+    def test_initialize_reports_current_router_version(self) -> None:
+        status, response, _session_id = self.router.handle_rpc({"id": 1, "method": "initialize"})
+        self.assertEqual(status, 200)
+        self.assertIsNotNone(response)
+        assert response is not None
+        self.assertEqual(response["result"]["serverInfo"]["version"], ROUTER_VERSION)
 
     def test_tool_schema_accepts_workspace_ref_instead_of_workspace_id(self) -> None:
         tools, _ = self.router._tools(force=True)

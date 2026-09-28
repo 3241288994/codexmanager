@@ -849,7 +849,7 @@ class LabContextRouter:
             result = {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": True}},
-                "serverInfo": {"name": "LabContext Router", "version": "0.2.0"},
+                "serverInfo": {"name": "LabContext Router", "version": ROUTER_VERSION},
                 "instructions": (
                     "Unified LabContext router. When the user provides an absolute file or directory path, "
                     "use inspect_path directly and identify source=local or source=server; no workspace "

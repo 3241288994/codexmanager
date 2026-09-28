@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/3241288994/codexmanager/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/3241288994/codexmanager/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-22c55e.svg" /></a>
-  <img alt="LabContext Provider 0.8.0" src="https://img.shields.io/badge/LabContext-Provider%200.8.0-6366f1.svg" />
+  <img alt="LabContext Provider 0.9.0" src="https://img.shields.io/badge/LabContext-Provider%200.9.0-6366f1.svg" />
 </p>
 
 复制一个本机或服务器绝对路径，ChatGPT 就能在你授权的范围内查看目录、找到入口文件、继续读取
@@ -81,12 +81,13 @@ ChatGPT：
 
 ### 路径直读：临时、快速、零注册
 
-`inspect_path` 适合“现在帮我看看这个目录/文件”。Provider 0.8.0 支持：
+`inspect_path` 适合“现在帮我看看这个目录/文件”。Provider 0.9.0 支持（工作区文件读取共用同一解析器）：
 
 - 有限深度目录树；
-- 安全文本和源代码；
+- 常见代码、配置、日志、文本及 README、Dockerfile、Makefile 等文件；
 - HTML 可见正文，不加载外部资源；
 - 文本型 PDF 的分页读取与搜索；
+- DOCX 正文、XLSX 单元格、PPTX 幻灯片文字和 IPYNB 源码/纯文本输出；
 - 扫描型 PDF 的明确 OCR 提示，而不是猜测内容。
 
 ### 工作区：长期项目上下文

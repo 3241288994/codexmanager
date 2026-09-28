@@ -20,7 +20,7 @@ The model-visible surface is intentionally fixed at eleven tools:
 6. `inspect_file(path, workspace_id?, view?, ...)` — inspect a known safe project
    file by Markdown/JSON outline, bounded search, line range, JSON Pointer or a
    bounded read, even when the file is not search-indexed.
-7. `inspect_path(path, ...)` — inspect an absolute text, HTML or PDF file, or a
+7. `inspect_path(path, ...)` — inspect an absolute supported file, or a
    bounded directory tree below `registry.allowed_roots` without registering a
    workspace.
 8. `query_experiments(...)` — refresh and query normalized experiment summaries.
@@ -47,8 +47,8 @@ deterministic tools only.
 When a Codex response or research record already names an exact project file,
 `inspect_file` avoids a second fuzzy search. It accepts workspace-relative paths
 or absolute paths that resolve inside the selected registered workspace. Direct
-inspection is limited to safe text formats, 10 MB input files and the global
-response budget; denied directories, credentials, binary files, directories,
+inspection uses the same format registry and parsers as `inspect_path`, with 10 MB input files and the global
+response budget; denied directories, credentials, unsupported binary files, directories,
 globs and paths outside the workspace remain inaccessible. Large JSON artifacts
 should be opened with `outline` and then a targeted `json_pointer` or `search`
 view rather than transferred in full.
@@ -64,7 +64,7 @@ used as experimental or research evidence. These limits can be tuned under
 `recent_session_max_age_days`, and `recent_session_digest_chars`.
 
 `inspect_path` is the quick, stateless path mode: paste an exact absolute path to
-read one safe text, HTML or text-based PDF file, or list a directory up to three
+read one supported file, or list a directory up to three
 levels deep. HTML extraction ignores active and hidden document elements and
 never fetches referenced resources. PDF extraction is page-aware: use
 `view="pages"` with `start_page`/`end_page`, or `view="search"` with a query.
@@ -74,6 +74,53 @@ tools remain the persistent project mode for research context, evidence,
 experiments and Codex handoff. Direct paths still have to remain below
 `registry.allowed_roots` and are subject to credential, denied-path, 10 MB input,
 500-page PDF, 20-page-per-call and response-size limits.
+
+## Shared file readers (Provider 0.9.0)
+
+`inspect_path`, `inspect_file` and `search_evidence` use the shared registry in
+`file_types.py` and the readers in `file_reader.py`. Registering a workspace does
+not change the supported formats. Workspace file reads additionally issue stable
+hash-checked evidence references. Both inspection tools support `auto`, `outline`,
+`search`, `lines` and `full_bounded` where applicable; JSON supports `json_pointer`,
+and PDF supports `pages`, `start_page` and `end_page`.
+
+| Formats | Extracted content |
+| --- | --- |
+| Common code: JS/JSX/MJS/CJS, TS/TSX, Vue/Svelte, CSS/SCSS, Python, C/C++ headers, Rust, Go, Java/Kotlin, C#, Swift, Ruby, PHP, shell/PowerShell, SQL and more | Source text; never executed |
+| Markdown/RST/LaTeX, JSON/JSONL, YAML/TOML, INI/CONF/XML, CSV/TSV, LOG, DIFF/PATCH, SVG | Text (SVG source, not image understanding) |
+| README, LICENSE, Dockerfile/Containerfile, Makefile, common lock/build files and ignore files | Known text filenames, including Dockerfile variants |
+| HTML/HTM | Extracted body/title/headings; no scripts or network requests |
+| PDF | Extractable text and page locations; scanned pages report `ocr_required` |
+| DOCX | Main-document paragraphs and table text; no visual layout, images or embedded objects |
+| XLSX | Sheet names, cell references and stored values; formulas are shown with cached results, not evaluated; dates may be stored serial values |
+| PPTX | Text in presentation slide order, with slide labels; no image/chart interpretation or speaker notes |
+| IPYNB | Cell source and plain-text outputs; no code execution, attachments or binary outputs |
+
+The exhaustive extension/filename list is `src/labcontext/file_types.py`. Legacy
+DOC/XLS/PPT, macro-enabled Office files, images/audio/video, archives and arbitrary
+binary files are not supported. Convert legacy Office files to DOCX/XLSX/PPTX first.
+Text decoding supports UTF-8 (with or without BOM), BOM-marked UTF-16/32 and GB18030;
+ANSI color sequences are removed from log text. Sensitive credential names and
+paths remain denied even when their extension is otherwise supported.
+
+Single-file inspection retains the 10 MB limit. Office containers are read without
+unpacking to disk and are limited to 2,000 members, 32 MB total uncompressed bytes,
+and 8 MB per parsed XML part. DTD/entity declarations and encrypted archives are
+rejected. Office/notebook extraction is capped at one million characters and
+reports truncation; responses are bounded in UTF-8 bytes.
+
+Workspace search still follows the configured asset include/exclude rules, scans
+at most 5,000 candidates, skips inputs above 2 MB, and searches at most 200,000
+extracted characters per file. Coverage reports size/parse skips and extraction
+truncation. A file can therefore be individually readable without being searchable
+under the current asset/size policy. Document references cite extracted-text lines
+and, for PDFs, page ranges. A supplemental Provider evidence-location table stores
+page coordinates without replacing existing evidence records; no CodexManager
+schema change is needed. Changed files return `stale_reference` without new content.
+
+Update **both** local and server Providers to 0.9.0 for the same capabilities on
+both sources, then refresh the ChatGPT Connector tool metadata. The Web binary
+does not need rebuilding for this Provider-only update.
 
 ## Workspace and asset registry
 
