@@ -62,6 +62,10 @@ Router 只从 `admin_token_file` 读取它，并只监听 IPv4 回环地址。
 `LABCONTEXT_SERVER_PROXY_REMOTE_PORT` 与 `LABCONTEXT_LOCAL_PROXY_PORT`。已有 API-key 文件可通过
 `LABCONTEXT_SECRET_ENV_FILE` 引用，不需要复制密钥内容。
 
+启用反向代理转发时，SSH bridge 默认在服务器写入
+`~/.local/state/labcontext/ssh-bridge-<端口>.pid`，用于一键修复时验证残留会话归属。需要调整位置可在
+私有 `launcher.env` 设置 `LABCONTEXT_SSH_REMOTE_STATE_FILE`；该文件只记录远端 shell PID，不包含密钥。
+
 ## Tunnel 与日常启动
 
 Tunnel profile 应指向 Router，而不是某个 Provider：
@@ -107,7 +111,10 @@ token 或其他凭据。一键修复状态和日志默认写入同目录的 `rec
 当 Router 仍在但某个子链路已经失效时，重复执行裸 `labcontext` 不会启动第二套进程。此时：
 
 - `labcontext doctor` 会真实执行 SSH 登录检查；桥接未运行时还会单独验证反向转发端口，因此能够区分认证失败、超时、依赖缺失和远端端口被旧会话占用；
-- `labcontext repair` 会先完成安全检查，只有检查通过才会停止已验证的旧监督器，并用当前配置重建完整链路；
+- `labcontext repair` 会自行完成安全检查，并用当前配置重建完整链路；新版 SSH bridge 会在服务器留下
+  仅当前用户可写的 PID 标记，确认远端端口属于自己残留的会话后才能自动清理，不会按端口盲目杀进程；
+- 如果监督器意外退出但子进程仍在，修复只会停止状态文件中 PID、进程组和预期命令全部吻合的
+  Provider、SSH、Router 与 Tunnel；任一身份不匹配就中止，不会接管普通用户进程；
 - `labcontext restart` 无条件重新加载当前配置，`labcontext stop` 则只做干净退出；两者都拒绝向无法验证为 LabContext 启动器的 PID 发信号。
 
 SSH 主机可以填写 `~/.ssh/config` 中的别名。启动器会沿用该别名的 `HostName`、`User`、密钥、
@@ -148,12 +155,14 @@ Codex 会话衔接。统一 Router 要求 Provider 至少为 `0.7.0`，并且提
 OpenAI Tunnel：全部通过后自动收起并进入正常工作区界面，出现降级或失败时保持展开，支持重新检测
 和复制脱敏诊断。降级时可以点击“一键修复”：网页只请求浏览器本机回环地址上的 Router，独立恢复
 进程会先运行安全诊断，检查通过后才停止已验证的旧监督器、重建连接并执行真实能力复检。SSH 密钥
-错误、网络超时、服务器反向端口被占用等无法安全自动处理的情况不会强行接管，而会显示失败阶段、
-原始原因、原因代码和人工建议。Router 重启期间页面会持续轮询恢复状态。
+错误、网络超时等无法安全自动处理的情况不会强行接管，而会显示失败阶段、原始原因、原因代码和
+人工建议。带有效托管标记的服务器反向端口残留会自动清理；旧版或第三方会话没有标记时仍拒绝接管。
+Router 重启期间页面会持续轮询恢复状态。
 
 恢复接口只有回环 Router 提供：`POST /api/recovery/repair` 创建任务，`GET /api/recovery` 读取结果。
 接口仍受精确 Origin 限制，不应将 Router 暴露到局域网或公网。Router 本身无法访问时，网页无法发起
-修复，需在终端运行 `labcontext doctor && labcontext repair`。
+修复，需在终端单独运行 `labcontext repair`。`repair` 已包含诊断；不要用 `doctor && repair`，否则
+`doctor` 发现故障后的非零退出码会阻止 Shell 执行修复。
 如果 `local` Provider 的 MCP 和 admin 都可用，页面会自动解锁“本地电脑”；
 不需要切换到 Tauri 桌面版。桌面版仍保留原生目录选择器，Web 版则要求填写运行 local Provider
 的电脑能够访问的绝对路径。

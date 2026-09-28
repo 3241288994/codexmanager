@@ -15,11 +15,15 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
 from labcontext import (  # noqa: E402
+    cleanup_managed_remote_forward,
     probe_ssh,
     probe_ssh_remote_forward,
+    process_is_labcontext_component,
     process_status,
     recovery_failure_from_diagnostics,
+    recovery_preflight,
     ssh_command,
+    stop_verified_orphan_components,
 )
 from labcontext_router import (  # noqa: E402
     LabContextRouter,
@@ -292,6 +296,72 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(status["exitCode"], 23)
         self.assertEqual(status["restartAttempts"], 2)
 
+    def test_stale_launcher_cleanup_stops_only_verified_component_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            status_path = Path(directory) / "launcher-status.json"
+            status_path.write_text("{}", encoding="utf-8")
+            alive = {101, 202}
+
+            def is_alive(pid: int) -> bool:
+                return pid in alive
+
+            def kill_group(pid: int, _signal: int) -> None:
+                alive.discard(pid)
+
+            runtime = {
+                "components": [
+                    {"id": "local-provider", "pid": 101},
+                    {"id": "router", "pid": 202},
+                ],
+            }
+            with mock.patch("labcontext.process_is_alive", side_effect=is_alive), \
+                    mock.patch("labcontext.process_is_labcontext_component", return_value=True), \
+                    mock.patch("labcontext.os.killpg", side_effect=kill_group) as killpg:
+                stopped = stop_verified_orphan_components(
+                    Path("/tmp/config.toml"),
+                    {"LABCONTEXT_STATUS_FILE": str(status_path)},
+                    runtime,
+                )
+            self.assertTrue(stopped)
+            self.assertFalse(status_path.exists())
+            self.assertEqual({call.args[0] for call in killpg.call_args_list}, {101, 202})
+
+    def test_component_identity_accepts_env_wrapped_local_provider(self) -> None:
+        actual = subprocess.CompletedProcess(
+            args=["ps"],
+            returncode=0,
+            stdout="/usr/bin/python /opt/provider/.venv/bin/labctx --config /private/provider.toml serve\n",
+            stderr="",
+        )
+        with mock.patch("labcontext.subprocess.run", return_value=actual), \
+                mock.patch("labcontext.os.getpgid", return_value=101), \
+                mock.patch("labcontext.require_program", return_value="/usr/bin/env"):
+            matched = process_is_labcontext_component(
+                101,
+                "local-provider",
+                Path("/tmp/router.toml"),
+                {
+                    "LABCONTEXT_LOCAL_PROVIDER_COMMAND": (
+                        "/usr/bin/env XDG_STATE_HOME=/private/state "
+                        "/opt/provider/.venv/bin/labctx --config /private/provider.toml serve"
+                    ),
+                },
+            )
+        self.assertTrue(matched)
+
+    def test_stale_launcher_cleanup_refuses_unverified_component(self) -> None:
+        runtime = {"components": [{"id": "router", "pid": 202}]}
+        with mock.patch("labcontext.process_is_alive", return_value=True), \
+                mock.patch("labcontext.process_is_labcontext_component", return_value=False), \
+                mock.patch("labcontext.os.killpg") as killpg:
+            with self.assertRaisesRegex(SystemExit, "does not match"):
+                stop_verified_orphan_components(
+                    Path("/tmp/config.toml"),
+                    {},
+                    runtime,
+                )
+        killpg.assert_not_called()
+
     def test_init_generates_decoupled_hybrid_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "config.toml"
@@ -331,6 +401,10 @@ class LauncherTest(unittest.TestCase):
         self.assertIn("/private/key", command)
         self.assertIn("ServerAliveInterval=30", command)
         self.assertIn("127.0.0.1:17987:127.0.0.1:7897", command)
+        self.assertIn("-T", command)
+        self.assertNotIn("-N", command)
+        self.assertIn("labcontext-ssh-bridge", command[-1])
+        self.assertIn("ssh-bridge-17987.pid", command[-1])
 
     def test_ssh_command_reuses_matching_forwardings_from_alias(self) -> None:
         with mock.patch(
@@ -348,7 +422,62 @@ class LauncherTest(unittest.TestCase):
             })
         self.assertNotIn("-L", command)
         self.assertNotIn("-R", command)
-        self.assertEqual(command[-1], "research-host")
+        self.assertEqual(command[-2], "research-host")
+        self.assertIn("labcontext-ssh-bridge", command[-1])
+
+    def test_managed_remote_cleanup_uses_clear_forwardings_and_marker(self) -> None:
+        result = subprocess.CompletedProcess(
+            args=["ssh"], returncode=0, stdout="stopped managed LabContext bridge PID 42\n", stderr="",
+        )
+        with mock.patch("labcontext.subprocess.run", return_value=result) as run:
+            ok, detail = cleanup_managed_remote_forward({
+                "LABCONTEXT_SSH_HOST": "research-host",
+                "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
+            })
+        self.assertTrue(ok)
+        self.assertIn("PID 42", detail)
+        command = run.call_args.args[0]
+        self.assertIn("ClearAllForwardings=yes", command)
+        self.assertIn("ssh-bridge-17987.pid", command[-1])
+
+    def test_recovery_preflight_cleans_only_managed_remote_conflict(self) -> None:
+        conflict = "Error: remote port forwarding failed for listen port 17987"
+        with mock.patch("labcontext.capture_doctor", side_effect=[
+            (2, conflict),
+            (2, conflict),
+            (0, "router config: ok"),
+        ]), mock.patch("labcontext.stop_running_stack", return_value=True) as stop, \
+                mock.patch("labcontext.cleanup_managed_remote_forward", return_value=(True, "stopped PID 42")) as cleanup:
+            result, diagnostics, stack_stopped = recovery_preflight(
+                Path("/tmp/config.toml"),
+                {
+                    "LABCONTEXT_SSH_HOST": "research-host",
+                    "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
+                },
+            )
+        self.assertEqual(result, 0)
+        self.assertTrue(stack_stopped)
+        self.assertIn("stopped PID 42", diagnostics)
+        stop.assert_called_once()
+        cleanup.assert_called_once()
+
+    def test_recovery_preflight_does_not_claim_unmarked_remote_conflict(self) -> None:
+        conflict = "Error: remote port forwarding failed for listen port 17987"
+        with mock.patch("labcontext.capture_doctor", side_effect=[
+            (2, conflict),
+            (2, conflict),
+        ]), mock.patch("labcontext.stop_running_stack", return_value=True), \
+                mock.patch("labcontext.cleanup_managed_remote_forward", return_value=(False, "marker is absent")):
+            result, diagnostics, stack_stopped = recovery_preflight(
+                Path("/tmp/config.toml"),
+                {
+                    "LABCONTEXT_SSH_HOST": "research-host",
+                    "LABCONTEXT_SERVER_PROXY_REMOTE_PORT": "17987",
+                },
+            )
+        self.assertEqual(result, 2)
+        self.assertTrue(stack_stopped)
+        self.assertIn("marker is absent", diagnostics)
 
     def test_ssh_probe_disables_forwardings_and_reports_auth_failure(self) -> None:
         result = subprocess.CompletedProcess(

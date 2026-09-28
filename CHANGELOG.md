@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Made LabContext recovery self-identifying: one-click repair can safely remove its own stale server-side SSH session and verified local orphan components, while refusing to claim unmarked or third-party processes.
 - Upgraded LabContext Provider to 0.9.0 with one shared, bounded reader for direct paths, workspace files and evidence search, adding common source/config/log formats plus DOCX, XLSX, PPTX and Jupyter Notebook text extraction.
 - Added the independently installable LabContext Provider 0.8.0 source package, with bounded HTML extraction, page-aware text PDF reading/search, explicit scanned-PDF OCR signaling, and local/server-independent deployment.
 - Refined the research workspace console with visibility-aware polling, clearer server/local connection states, guided workspace setup, and a refreshed responsive interface.

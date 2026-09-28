@@ -356,8 +356,8 @@ class LabContextRouter:
                 "reasonCode": "recovery_worker_exited",
                 "summary": "一键修复进程意外退出",
                 "detail": "恢复进程没有留下完成结果，请查看恢复日志或运行 labcontext doctor。",
-                "suggestions": ["运行 labcontext doctor 获取原始诊断。", "随后运行 labcontext repair 重试。"],
-                "command": "labcontext doctor && labcontext repair",
+                "suggestions": ["运行 labcontext doctor 获取原始诊断。", "随后单独运行 labcontext repair 重试。"],
+                "command": "labcontext repair",
                 "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             })
         return status
@@ -434,8 +434,8 @@ class LabContextRouter:
                     "reasonCode": "recovery_worker_start_failed",
                     "summary": "无法启动一键修复进程",
                     "detail": str(exc),
-                    "suggestions": ["请在终端运行 labcontext doctor && labcontext repair。"],
-                    "command": "labcontext doctor && labcontext repair",
+                    "suggestions": ["请在终端运行 labcontext repair；需要只读诊断时再单独运行 labcontext doctor。"],
+                    "command": "labcontext repair",
                 })
                 temporary.write_text(json.dumps(initial, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
                 os.replace(temporary, status_path)

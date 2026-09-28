@@ -115,14 +115,17 @@ ChatGPT：
 打开 `http://127.0.0.1:48761/labcontext/`：
 
 1. 连接降级时点击 **一键修复**；
-2. 系统自动诊断、重建连接并重新验证；
+2. 系统自动诊断，清理可验证的旧 SSH 转发或孤儿组件，重建连接并重新验证；
 3. 无法安全修复时，页面直接显示具体原因和处理建议。
 
 如果 Router 完全没有运行，终端执行：
 
 ```bash
-labcontext doctor && labcontext repair
+labcontext repair
 ```
+
+`repair` 会自行完成诊断；不要写成 `labcontext doctor && labcontext repair`，因为诊断发现故障时会
+返回非零状态，Shell 的 `&&` 会阻止修复命令执行。
 
 ## 它是如何连接起来的
 

@@ -28,8 +28,86 @@ DEFAULT_STATUS_PATH = Path("~/.local/state/labcontext-router/launcher-status.jso
 DEFAULT_RECOVERY_STATUS_PATH = Path("~/.local/state/labcontext-router/recovery-status.json").expanduser()
 DEFAULT_RECOVERY_LOG_PATH = Path("~/.local/state/labcontext-router/recovery.log").expanduser()
 DEFAULT_DASHBOARD_URL = "http://127.0.0.1:48761/labcontext/"
+REMOTE_BRIDGE_PROCESS_NAME = "labcontext-ssh-bridge"
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROUTER_SCRIPT = SCRIPT_DIR / "labcontext_router.py"
+
+REMOTE_BRIDGE_SCRIPT = r'''set -eu
+state_file=$1
+case "$state_file" in
+  /*) ;;
+  *) state_file="$HOME/$state_file" ;;
+esac
+state_dir=${state_file%/*}
+mkdir -p "$state_dir"
+umask 077
+temporary="${state_file}.$$"
+printf '%s %s\n' "$PPID" "$$" > "$temporary"
+mv "$temporary" "$state_file"
+cleanup() {
+  current=
+  if [ -r "$state_file" ]; then
+    IFS= read -r current < "$state_file" || true
+  fi
+  if [ "$current" = "$PPID $$" ]; then
+    rm -f "$state_file"
+  fi
+}
+trap cleanup EXIT
+trap 'cleanup; exit 0' HUP INT TERM
+while :; do
+  sleep 3600 &
+  wait "$!" || true
+done'''
+
+REMOTE_BRIDGE_CLEANUP_SCRIPT = r'''set -eu
+state_file=$1
+case "$state_file" in
+  /*) ;;
+  *) state_file="$HOME/$state_file" ;;
+esac
+if [ ! -r "$state_file" ]; then
+  printf '%s\n' 'managed bridge marker is absent' >&2
+  exit 3
+fi
+IFS=' ' read -r session_pid shell_pid < "$state_file" || true
+case "$session_pid" in
+  ''|*[!0-9]*) printf '%s\n' 'managed bridge session PID is invalid' >&2; exit 4 ;;
+esac
+case "$shell_pid" in
+  ''|*[!0-9]*) printf '%s\n' 'managed bridge shell PID is invalid' >&2; exit 4 ;;
+esac
+if ! kill -0 "$session_pid" 2>/dev/null || ! kill -0 "$shell_pid" 2>/dev/null; then
+  printf '%s\n' 'managed bridge marker refers to an exited process' >&2
+  exit 3
+fi
+shell_command=$(ps -p "$shell_pid" -o args= 2>/dev/null || true)
+case "$shell_command" in
+  *labcontext-ssh-bridge*) ;;
+  *) printf '%s\n' 'marker shell is not a managed LabContext bridge' >&2; exit 4 ;;
+esac
+actual_parent=$(ps -p "$shell_pid" -o ppid= 2>/dev/null | tr -d ' ')
+if [ "$actual_parent" != "$session_pid" ]; then
+  printf '%s\n' 'managed bridge parent-child relationship changed' >&2
+  exit 4
+fi
+session_command=$(ps -p "$session_pid" -o args= 2>/dev/null || true)
+case "$session_command" in
+  sshd:*) ;;
+  *) printf '%s\n' 'marker parent is not an sshd session' >&2; exit 4 ;;
+esac
+kill -TERM "$session_pid"
+attempt=0
+while kill -0 "$session_pid" 2>/dev/null && [ "$attempt" -lt 50 ]; do
+  attempt=$((attempt + 1))
+  sleep 0.1
+done
+if kill -0 "$session_pid" 2>/dev/null; then
+  printf '%s\n' 'managed LabContext bridge did not stop in time' >&2
+  exit 5
+fi
+rm -f "$state_file"
+printf '%s\n' "stopped managed LabContext SSH session PID $session_pid"'''
 
 
 def fail(message: str) -> NoReturn:
@@ -239,6 +317,23 @@ def _forward_port(value: str) -> str:
     return endpoint.rsplit(":", 1)[-1].strip("[]")
 
 
+def remote_bridge_state_file(values: dict[str, str]) -> str:
+    configured = values.get("LABCONTEXT_SSH_REMOTE_STATE_FILE", "").strip()
+    if configured:
+        if any(character in configured for character in ("\0", "\n", "\r")):
+            fail("LABCONTEXT_SSH_REMOTE_STATE_FILE contains an invalid character")
+        return configured
+    port = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT", "session").strip()
+    safe_port = port if port.isdigit() else "session"
+    return f".local/state/labcontext/ssh-bridge-{safe_port}.pid"
+
+
+def remote_shell_command(script: str, process_name: str, *arguments: str) -> str:
+    quoted = " ".join(shlex.quote(item) for item in arguments)
+    suffix = f" {quoted}" if quoted else ""
+    return f"sh -c {shlex.quote(script)} {shlex.quote(process_name)}{suffix}"
+
+
 def ssh_config_forwardings(values: dict[str, str]) -> tuple[set[str], set[str]]:
     host = values.get("LABCONTEXT_SSH_HOST", "").strip()
     if not host:
@@ -270,7 +365,8 @@ def ssh_config_forwardings(values: dict[str, str]) -> tuple[set[str], set[str]]:
 
 def ssh_command(values: dict[str, str]) -> list[str]:
     command = ssh_option_command(values)
-    command.extend(["-N", "-o", "ExitOnForwardFailure=yes"])
+    remote_proxy = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT")
+    command.extend(["-T" if remote_proxy else "-N", "-o", "ExitOnForwardFailure=yes"])
     configured_local, configured_remote = ssh_config_forwardings(values)
     local_mcp = values.get("LABCONTEXT_SERVER_MCP_LOCAL_PORT", "1455")
     remote_mcp = values.get("LABCONTEXT_SERVER_MCP_REMOTE_PORT", "1455")
@@ -280,14 +376,58 @@ def ssh_command(values: dict[str, str]) -> list[str]:
     remote_web = values.get("LABCONTEXT_SERVER_WEB_REMOTE_PORT", "48761")
     if local_web and local_web not in configured_local:
         command.extend(["-L", f"127.0.0.1:{local_web}:127.0.0.1:{remote_web}"])
-    remote_proxy = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT")
     local_proxy = values.get("LABCONTEXT_LOCAL_PROXY_PORT")
     if bool(remote_proxy) != bool(local_proxy):
         fail("reverse proxy forwarding requires both LABCONTEXT_SERVER_PROXY_REMOTE_PORT and LABCONTEXT_LOCAL_PROXY_PORT")
     if remote_proxy and local_proxy and remote_proxy not in configured_remote:
         command.extend(["-R", f"127.0.0.1:{remote_proxy}:127.0.0.1:{local_proxy}"])
     command.append(values["LABCONTEXT_SSH_HOST"])
+    if remote_proxy:
+        command.append(remote_shell_command(
+            REMOTE_BRIDGE_SCRIPT,
+            REMOTE_BRIDGE_PROCESS_NAME,
+            remote_bridge_state_file(values),
+        ))
     return command
+
+
+def cleanup_managed_remote_forward(values: dict[str, str]) -> tuple[bool, str]:
+    host = values.get("LABCONTEXT_SSH_HOST", "").strip()
+    if not host:
+        return False, "SSH host is not configured"
+    if not values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT"):
+        return False, "reverse proxy forwarding is not configured"
+    command = ssh_option_command(values)
+    command.extend([
+        "-o", "ClearAllForwardings=yes",
+        "-o", f"ConnectTimeout={values.get('LABCONTEXT_SSH_CONNECT_TIMEOUT', '8')}",
+        host,
+        remote_shell_command(
+            REMOTE_BRIDGE_CLEANUP_SCRIPT,
+            "labcontext-ssh-bridge-cleanup",
+            remote_bridge_state_file(values),
+        ),
+    ])
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "managed remote bridge cleanup timed out"
+    except OSError as exc:
+        return False, str(exc)
+    output = "\n".join(
+        line.strip()
+        for line in (result.stdout, result.stderr)
+        if line.strip()
+    )
+    if result.returncode == 0:
+        return True, output or "stopped managed LabContext bridge"
+    return False, output or f"managed remote bridge cleanup exited with status {result.returncode}"
 
 
 def probe_ssh(values: dict[str, str]) -> tuple[bool, str]:
@@ -552,6 +692,97 @@ def process_is_labcontext_launcher(pid: int) -> bool:
     return bool(command) and "labcontext" in command and "labcontext_router" not in command
 
 
+def process_is_labcontext_component(
+    pid: int,
+    component_id: str,
+    config_path: Path,
+    values: dict[str, str],
+) -> bool:
+    try:
+        result = subprocess.run(
+            ["ps", "-ww", "-p", str(pid), "-o", "command="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        process_group = os.getpgid(pid)
+    except (OSError, ProcessLookupError, subprocess.TimeoutExpired):
+        return False
+    command = result.stdout.strip()
+    if not command or process_group != pid:
+        return False
+    if component_id == "router":
+        return "labcontext_router.py" in command and str(config_path) in command
+    if component_id == "ssh-bridge":
+        host = values.get("LABCONTEXT_SSH_HOST", "")
+        return bool(host) and "ExitOnForwardFailure=yes" in command and host in command
+    if component_id == "secure-mcp-tunnel":
+        profile = values.get("LABCONTEXT_TUNNEL_PROFILE", "labcontext")
+        return "tunnel-client" in command and " run " in f" {command} " and f"--profile {profile}" in command
+    if component_id == "local-provider":
+        expected = local_provider_command(values)
+        if not expected:
+            return False
+        index = 0
+        if Path(expected[0]).name == "env":
+            index = 1
+            while index < len(expected) and "=" in expected[index]:
+                index += 1
+        identity = expected[index:]
+        return bool(identity) and all(argument in command for argument in identity)
+    return False
+
+
+def stop_verified_orphan_components(
+    config_path: Path,
+    values: dict[str, str],
+    runtime: dict[str, object],
+) -> bool:
+    components = runtime.get("components")
+    if not isinstance(components, list):
+        return False
+    candidates: list[tuple[str, int]] = []
+    for item in components:
+        if not isinstance(item, dict):
+            continue
+        component_id = item.get("id")
+        pid = item.get("pid")
+        if not isinstance(component_id, str) or not isinstance(pid, int) or pid <= 1:
+            continue
+        if process_is_alive(pid):
+            candidates.append((component_id, pid))
+    if not candidates:
+        return False
+    for component_id, pid in candidates:
+        if not process_is_labcontext_component(pid, component_id, config_path, values):
+            fail(
+                f"refusing to signal orphan PID {pid}: component {component_id} "
+                "does not match the recorded LabContext command"
+            )
+    print("labcontext: verified stale launcher; stopping recorded orphan components")
+    for _, pid in reversed(candidates):
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if not any(process_is_alive(pid) for _, pid in candidates):
+            try:
+                runtime_status_path(values).unlink()
+            except FileNotFoundError:
+                pass
+            print("labcontext: verified orphan components stopped cleanly")
+            return True
+        time.sleep(0.1)
+    remaining = [str(pid) for _, pid in candidates if process_is_alive(pid)]
+    fail(
+        "verified orphan components did not stop cleanly within 10 seconds: "
+        + ", ".join(remaining)
+    )
+
+
 def stop_running_stack(config_path: Path, values: dict[str, str]) -> bool:
     config = load_config(config_path)
     address = parse_listen_addr(config.listen_addr)
@@ -559,6 +790,8 @@ def stop_running_stack(config_path: Path, values: dict[str, str]) -> bool:
     runtime = read_runtime_status(status_path)
     launcher_pid = runtime.get("launcherPid") if runtime else None
     if not isinstance(launcher_pid, int) or launcher_pid <= 1 or not process_is_alive(launcher_pid):
+        if runtime and stop_verified_orphan_components(config_path, values, runtime):
+            return True
         router_status = fetch_router_status(address)
         if router_status:
             router = router_status.get("router")
@@ -585,6 +818,36 @@ def stop_running_stack(config_path: Path, values: dict[str, str]) -> bool:
     )
 
 
+def recovery_preflight(
+    config_path: Path,
+    values: dict[str, str],
+) -> tuple[int, str, bool]:
+    result, diagnostics = capture_doctor(config_path, values)
+    if result == 0 or "remote port forwarding failed" not in diagnostics.lower():
+        return result, diagnostics, False
+
+    stop_running_stack(config_path, values)
+    stack_stopped = True
+    retry_result, retry_diagnostics = capture_doctor(config_path, values)
+    diagnostics = "\n\n".join((
+        diagnostics,
+        "After stopping the verified local LabContext stack:\n" + retry_diagnostics,
+    ))
+    if retry_result == 0:
+        return 0, diagnostics, stack_stopped
+    if "remote port forwarding failed" not in retry_diagnostics.lower():
+        return retry_result, diagnostics, stack_stopped
+
+    cleaned, cleanup_detail = cleanup_managed_remote_forward(values)
+    diagnostics += "\n\nManaged remote bridge cleanup:\n" + cleanup_detail
+    if not cleaned:
+        return retry_result, diagnostics, stack_stopped
+
+    final_result, final_diagnostics = capture_doctor(config_path, values)
+    diagnostics += "\n\nAfter managed bridge cleanup:\n" + final_diagnostics
+    return final_result, diagnostics, stack_stopped
+
+
 def repair(config_path: Path, values: dict[str, str]) -> int:
     config = load_config(config_path)
     address = parse_listen_addr(config.listen_addr)
@@ -593,11 +856,14 @@ def repair(config_path: Path, values: dict[str, str]) -> int:
         print("labcontext: all configured components already passed real capability checks")
         return 0
     print("labcontext: validating configuration before recovery")
-    validation = doctor(config_path, values)
+    validation, diagnostics, stack_stopped = recovery_preflight(config_path, values)
+    if diagnostics:
+        print(diagnostics, file=sys.stderr if validation != 0 else sys.stdout)
     if validation != 0:
-        print("labcontext: repair stopped before changing running processes", file=sys.stderr)
+        print("labcontext: repair stopped because the remaining conflict could not be safely claimed", file=sys.stderr)
         return validation
-    stop_running_stack(config_path, values)
+    if not stack_stopped:
+        stop_running_stack(config_path, values)
     print("labcontext: starting a fresh stack with the current configuration")
     return run(config_path, values)
 
@@ -621,16 +887,17 @@ def recovery_failure_from_diagnostics(output: str, values: dict[str, str]) -> di
     normalized = output.lower()
     if "remote port forwarding failed" in normalized:
         port = values.get("LABCONTEXT_SERVER_PROXY_REMOTE_PORT", "17987")
+        marker = remote_bridge_state_file(values)
         return {
             "reasonCode": "ssh_reverse_port_in_use",
-            "summary": f"服务器反向转发端口 {port} 已被占用，无法安全自动接管",
+            "summary": f"服务器反向转发端口 {port} 已被占用，且无法确认占用者属于当前 LabContext",
             "detail": output,
             "suggestions": [
-                "这通常是上一次 SSH 转发会话仍留在服务器上。",
-                f"在服务器确认占用 127.0.0.1:{port} 的进程属于旧 LabContext 会话后将其停止，或更换 LABCONTEXT_SERVER_PROXY_REMOTE_PORT。",
+                f"新版会通过远端标记 {marker} 自动清理自己留下的会话；缺少标记时不会误杀其他 SSH 转发。",
+                f"在服务器确认占用 127.0.0.1:{port} 的进程属于旧版 LabContext 会话后将其停止，或更换 LABCONTEXT_SERVER_PROXY_REMOTE_PORT。",
                 "处理后再次点击“一键修复”。",
             ],
-            "command": "labcontext doctor && labcontext repair",
+            "command": "labcontext repair",
         }
     if "permission denied" in normalized or "publickey" in normalized:
         return {
@@ -664,7 +931,7 @@ def recovery_failure_from_diagnostics(output: str, values: dict[str, str]) -> di
         "summary": "安全检查未通过，未改动当前运行进程",
         "detail": output or "labcontext doctor 未返回更多信息",
         "suggestions": ["按上方原始诊断修正配置后再次点击“一键修复”。"],
-        "command": "labcontext doctor && labcontext repair",
+        "command": "labcontext repair",
     }
 
 
@@ -741,7 +1008,12 @@ def recovery_worker(config_path: Path, values: dict[str, str]) -> int:
         "phase": "diagnosing",
         "summary": "正在检查 SSH、端口、Provider 与 Tunnel 配置",
     })
-    result, diagnostics = capture_doctor(config_path, values)
+    try:
+        result, diagnostics, stack_stopped = recovery_preflight(config_path, values)
+    except (SystemExit, RouterError, OSError, ValueError) as exc:
+        result = 2
+        diagnostics = str(exc)
+        stack_stopped = False
     if result != 0:
         write_recovery_status(values, {
             **base,
@@ -768,17 +1040,18 @@ def recovery_worker(config_path: Path, values: dict[str, str]) -> int:
         "summary": "安全检查通过，正在重建 LabContext 连接",
         "detail": diagnostics,
     })
-    try:
-        stop_running_stack(config_path, values)
-    except (SystemExit, RouterError, OSError, ValueError) as exc:
-        failure = recovery_failure_from_diagnostics(str(exc), values)
-        write_recovery_status(values, {
-            **base,
-            "phase": "failed",
-            **failure,
-            "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
-        return 2
+    if not stack_stopped:
+        try:
+            stop_running_stack(config_path, values)
+        except (SystemExit, RouterError, OSError, ValueError) as exc:
+            failure = recovery_failure_from_diagnostics(str(exc), values)
+            write_recovery_status(values, {
+                **base,
+                "phase": "failed",
+                **failure,
+                "completedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+            return 2
 
     env_path = Path(values.get("LABCONTEXT_ENV_FILE", str(DEFAULT_ENV_PATH))).expanduser()
     launcher_script = Path(values.get("LABCONTEXT_LAUNCHER_SCRIPT", str(Path(__file__).resolve()))).expanduser()
